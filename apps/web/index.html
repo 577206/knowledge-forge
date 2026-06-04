@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Knowledge Forge</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Knowledge Forge · 知识库直通车</p>
+          <h1>上传，写入，马上看见</h1>
+          <p class="subtitle">最小闭环版：文件直接写入你的 LLM-Wiki/inbox，页面展示最近笔记，并可一键打开 Obsidian / 本地文件夹。</p>
+        </div>
+        <div class="status" id="health">检查服务中...</div>
+      </section>
+
+      <section class="quick-actions">
+        <button id="openVaultBtn" class="ghost-btn">打开知识库文件夹</button>
+        <button id="refreshInboxBtn" class="ghost-btn">刷新 Inbox</button>
+      </section>
+
+      <section class="card upload-card">
+        <div id="dropzone" class="dropzone">
+          <div class="drop-icon">⇪</div>
+          <h2>拖文件到这里</h2>
+          <p>支持 .pdf / .md / .txt / .xlsx / .xls / .csv</p>
+          <button id="pickBtn">选择文件并写入知识库</button>
+          <input id="fileInput" type="file" hidden />
+        </div>
+      </section>
+
+      <section class="workspace-grid">
+        <div class="card result-card">
+          <h2>本次导入</h2>
+          <div id="summary" class="summary muted">等待上传...</div>
+          <div id="links" class="links"></div>
+          <div id="fields" class="fields"></div>
+          <details>
+            <summary>查看原始 JSON</summary>
+            <pre id="result">等待上传...</pre>
+          </details>
+        </div>
+
+        <aside class="card inbox-card">
+          <div class="panel-title">
+            <h2>知识库 Inbox</h2>
+            <span id="inboxCount" class="muted">加载中...</span>
+          </div>
+          <div id="inboxList" class="inbox-list"></div>
+        </aside>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+node_modules/
+.uploads/
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local runtime data / generated vault content
+.knowledge-forge/
+dist/
+build/
+coverage/
+
+# Editor
+.vscode/
+.idea/
