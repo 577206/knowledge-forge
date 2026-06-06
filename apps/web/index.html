@@ -7,120 +7,176 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="shell">
+    <main class="app-shell">
       <section class="hero">
-        <div>
-          <h1>Knowledge Forge</h1>
-          <p class="subtitle">知识摄入、Inbox 预览和图谱探索的本地工作台。</p>
+        <nav class="topbar" aria-label="Knowledge Forge navigation">
+          <div class="brand-mark"><span>⚒</span> Knowledge Forge</div>
+          <div class="topbar-actions">
+            <button id="openVaultFromHomeBtn" class="ghost-btn compact">打开 Vault</button>
+            <span class="status-dot" id="health">服务检查中...</span>
+          </div>
+        </nav>
+
+        <div class="hero-copy">
+          <p class="eyebrow">Local-first · NotebookLM optional</p>
+          <h1>把资料锻造成可复习、可输出、可沉淀的知识。</h1>
+          <p class="subtitle">
+            一边是完全本地的 Local Forge，一边是可选增强的 NotebookLM Bridge。上传资料，选择 Summary、Study Guide、Quiz、Flashcards 或 PDF，让原始文件变成能进入 Obsidian inbox 的学习产物。
+          </p>
         </div>
-        <div class="status" id="health">检查服务中...</div>
+
+        <div class="hero-status">
+          <span id="vaultPath">Vault 未加载</span>
+          <span>人工确认写入 · 不自动上传私人资料</span>
+        </div>
       </section>
 
-      <nav class="view-tabs">
-        <button class="tab-btn active" data-view="ingest">摄入工作台</button>
-        <button class="tab-btn" data-view="graph">知识图谱</button>
-      </nav>
+      <section class="route-grid" id="homeView">
+        <article class="route-card local-card" data-route="local" tabindex="0" role="button" aria-label="进入 Local Forge">
+          <div class="route-icon">⚒</div>
+          <p class="route-kicker">不连接 Google · 本地优先</p>
+          <h2>Local Forge</h2>
+          <p>上传 PDF、Markdown、TXT、Excel/CSV，本地解析为 Obsidian inbox 笔记，并继续生成学习材料。</p>
+          <ul>
+            <li>Summary Digest 摘要笔记</li>
+            <li>Study Guide 学习讲义</li>
+            <li>Quiz / Flashcards 练习材料</li>
+            <li>Report / PDF 输出入口</li>
+          </ul>
+          <button class="route-btn" type="button">进入本地锻造</button>
+        </article>
 
-      <section class="quick-actions" data-view-section="ingest">
-        <button id="openObsidianBtn" class="obsidian-btn">打开 Obsidian 知识库</button>
-        <button id="openVaultBtn" class="ghost-btn">打开知识库文件夹</button>
-        <button id="refreshInboxBtn" class="ghost-btn">刷新 Inbox</button>
+        <article class="route-card notebook-card" data-route="notebook" tabindex="0" role="button" aria-label="进入 NotebookLM Bridge">
+          <div class="route-icon">◇</div>
+          <p class="route-kicker">可选增强 · NotebookLM</p>
+          <h2>NotebookLM Bridge</h2>
+          <p>连接 Google NotebookLM，检查登录状态，打开授权，并把生成结果回写到 Obsidian inbox。</p>
+          <ul>
+            <li>NotebookLM source-grounded Q&A</li>
+            <li>Quiz / Flashcards / Mind Map</li>
+            <li>Report / PDF / Audio Overview</li>
+            <li>人工确认后写回知识库</li>
+          </ul>
+          <button class="route-btn dark" type="button">进入 NotebookLM 桥接</button>
+        </article>
       </section>
 
-      <section class="card bridge-card" data-view-section="ingest">
-        <div class="panel-title">
+      <section class="flow-view" id="localView" hidden>
+        <button class="back-btn" data-back type="button">← 返回路径选择</button>
+
+        <div class="flow-head local-head">
           <div>
-            <h2>NotebookLM Bridge</h2>
-            <p class="muted">可选增强：连接 NotebookLM 后，可把资料生成摘要、测验、闪卡、报告/PDF 等，再写回 Obsidian inbox。</p>
+            <p class="eyebrow">Local Forge</p>
+            <h2>本地生成，不出 Google。</h2>
+            <p>先上传资料生成基础 inbox 笔记，再按你勾选的动作生成 Summary、Study Guide、Quiz、Flashcards 或 PDF artifact。</p>
           </div>
-          <button id="refreshNotebookLmBtn" class="ghost-btn">检查连接</button>
+          <button id="openVaultBtn" class="ghost-btn" type="button">打开 Vault 文件夹</button>
         </div>
-        <div id="notebookLmStatus" class="bridge-status muted">等待检查...</div>
-        <div class="bridge-actions">
-          <span class="output-chip">Summary Digest</span>
-          <span class="output-chip">Quiz</span>
-          <span class="output-chip">Flashcards</span>
-          <span class="output-chip">Mind Map</span>
-          <span class="output-chip">Report / PDF</span>
-          <span class="output-chip">Audio Overview</span>
-        </div>
-        <p class="bridge-note">当前版本先提供连接状态与工作流入口；生成动作需要用户确认后再调用 notebooklm-py，避免上传私人资料或暴露 Google 登录态。</p>
-      </section>
 
-      <section class="card upload-card" data-view-section="ingest">
-        <div id="dropzone" class="dropzone">
-          <div class="drop-icon">⇪</div>
-          <h2>拖入文件</h2>
-          <p>.pdf / .md / .txt / .xlsx / .xls / .csv</p>
-          <button id="pickBtn">选择文件</button>
+        <div class="action-picker" id="localActions" aria-label="Local Forge output actions">
+          <label><input type="checkbox" value="summary" checked /> Summary</label>
+          <label><input type="checkbox" value="study-guide" checked /> Study Guide</label>
+          <label><input type="checkbox" value="quiz" /> Quiz</label>
+          <label><input type="checkbox" value="flashcards" /> Flashcards</label>
+          <label><input type="checkbox" value="pdf" /> PDF</label>
+        </div>
+
+        <div class="upload-zone" id="dropzone">
+          <div class="upload-mark">⇪</div>
+          <h3>拖入文件开始锻造</h3>
+          <p>.pdf / .md / .txt / .xlsx / .xls / .csv / .docx</p>
+          <button id="pickBtn" type="button">选择文件</button>
           <input id="fileInput" type="file" hidden />
-        </div>
-      </section>
-
-      <section class="workspace-grid" data-view-section="ingest">
-        <div class="card result-card">
-          <h2>本次导入</h2>
-          <div id="summary" class="summary muted">等待上传...</div>
-          <div id="links" class="links"></div>
-          <div id="fields" class="fields"></div>
-          <details>
-            <summary>查看原始 JSON</summary>
-            <pre id="result">等待上传...</pre>
-          </details>
+          <small id="selectedFileName">尚未选择文件</small>
         </div>
 
-        <aside class="card inbox-card">
-          <div class="panel-title">
-            <h2>知识库 Inbox</h2>
-            <span id="inboxCount" class="muted">加载中...</span>
-          </div>
-          <div id="inboxList" class="inbox-list"></div>
-        </aside>
-      </section>
-
-      <section class="graph-view" data-view-section="graph" hidden>
-        <div class="card graph-card">
-          <div class="panel-title">
-            <h2>知识图谱 · Graph View</h2>
-            <span id="graphStats" class="muted">加载中...</span>
-          </div>
-          <div class="graph-toolbar">
-            <input id="graphSearch" type="search" placeholder="搜索笔记，回车定位" />
-            <label class="toggle"><input type="checkbox" id="graphIncludeInbox" checked /> 含 inbox</label>
-            <button id="graphReset" class="ghost-btn">重置视图</button>
-            <button id="graphReload" class="ghost-btn">重新加载</button>
-          </div>
-          <div class="graph-controls" aria-label="图谱参数">
-            <label class="range-field">
-              <span><strong>节点作用力</strong><output id="graphRepulsionValue">2600</output></span>
-              <input id="graphRepulsion" type="range" min="800" max="8000" step="100" value="2600" />
-            </label>
-            <label class="range-field">
-              <span><strong>连接长度</strong><output id="graphLinkLengthValue">96</output></span>
-              <input id="graphLinkLength" type="range" min="40" max="180" step="4" value="96" />
-            </label>
-            <label class="range-field">
-              <span><strong>节点大小</strong><output id="graphNodeSizeValue">1.0</output></span>
-              <input id="graphNodeSize" type="range" min="0.6" max="1.8" step="0.1" value="1.0" />
-            </label>
-          </div>
-          <div class="graph-stage">
-            <canvas id="graphCanvas"></canvas>
-            <div id="graphLegend" class="graph-legend"></div>
-            <div id="graphTooltip" class="graph-tooltip" hidden></div>
-            <aside id="graphNotePanel" class="graph-note-panel" hidden>
-              <div class="note-panel-head">
-                <strong id="notePanelTitle">笔记</strong>
-                <button id="notePanelClose" class="note-panel-close" type="button">×</button>
+        <div class="result-grid">
+          <article class="panel result-panel">
+            <div class="panel-title">
+              <div>
+                <h3>本次输出</h3>
+                <span id="selectedActions">Summary / Study Guide</span>
               </div>
-              <div id="notePanelMeta" class="note-panel-meta"></div>
-              <div id="notePanelBody" class="note-panel-body"></div>
-            </aside>
+              <button id="runSelectedActionsBtn" class="small-btn accent" type="button" disabled>生成勾选动作</button>
+            </div>
+            <div id="summary" class="result-body muted">等待上传...</div>
+            <div id="artifacts" class="artifact-list"></div>
+            <div id="fields"></div>
+            <details>
+              <summary>原始 JSON</summary>
+              <pre id="result">等待上传...</pre>
+            </details>
+          </article>
+
+          <aside class="panel">
+            <div class="panel-title">
+              <div>
+                <h3>Inbox</h3>
+                <span>最近生成/导入</span>
+              </div>
+              <button id="refreshInboxBtn" class="small-btn" type="button">刷新</button>
+            </div>
+            <div id="inboxList" class="inbox-list"></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="flow-view" id="notebookView" hidden>
+        <button class="back-btn" data-back type="button">← 返回路径选择</button>
+
+        <div class="flow-head notebook-head">
+          <div>
+            <p class="eyebrow">NotebookLM Bridge</p>
+            <h2>连接 NotebookLM，生成高级学习材料。</h2>
+            <p>这个模式使用本机 notebooklm-py。登录、上传私人资料、写入 artifact 都需要明确点击确认。</p>
           </div>
+          <div class="button-stack">
+            <button id="refreshNotebookLmBtn" class="ghost-btn" type="button">检查连接</button>
+            <button id="connectNotebookLmBtn" class="route-btn dark mini" type="button">连接 Google NotebookLM</button>
+          </div>
+        </div>
+
+        <div id="notebookLmStatus" class="bridge-status muted">等待检查...</div>
+
+        <div class="notebook-demo-grid">
+          <article class="panel">
+            <h3>1. 选择输出动作</h3>
+            <div class="action-picker vertical" id="notebookActions" aria-label="NotebookLM output actions">
+              <label><input type="checkbox" value="summary" checked /> Summary</label>
+              <label><input type="checkbox" value="study-guide" checked /> Study Guide</label>
+              <label><input type="checkbox" value="quiz" /> Quiz</label>
+              <label><input type="checkbox" value="flashcards" /> Flashcards</label>
+              <label><input type="checkbox" value="mind-map" /> Mind Map</label>
+              <label><input type="checkbox" value="pdf" /> PDF</label>
+            </div>
+            <div class="notebook-link-box">
+              <label for="notebookLink">Notebook / source link</label>
+              <input id="notebookLink" type="url" placeholder="粘贴 NotebookLM notebook 链接（可选）" />
+            </div>
+            <button id="writeNotebookDemoBtn" class="route-btn dark full" type="button">写入示例 Digest 到 Inbox</button>
+          </article>
+
+          <article class="panel">
+            <h3>2. 工作流预览</h3>
+            <ol class="flow-list">
+              <li>检查 notebooklm-py 与 Google 登录态。</li>
+              <li>选择或创建 NotebookLM notebook。</li>
+              <li>人工确认 source 上传范围。</li>
+              <li>调用 NotebookLM 生成材料。</li>
+              <li>Agent 二次整理成 Markdown/PDF，并写入 Obsidian inbox。</li>
+            </ol>
+            <div id="notebookActionResult" class="action-result muted">还没有执行 NotebookLM 动作。</div>
+          </article>
         </div>
       </section>
     </main>
+
+    <section class="graph-compat" aria-hidden="true" hidden>
+      <input id="graphRepulsion" type="range" min="800" max="8000" step="100" value="2600" />
+      <input id="graphLinkLength" type="range" min="40" max="180" step="4" value="96" />
+      <input id="graphNodeSize" type="range" min="0.6" max="1.8" step="0.1" value="1.0" />
+    </section>
+
     <script type="module" src="/app.js"></script>
-    <script type="module" src="/graph.js"></script>
   </body>
 </html>

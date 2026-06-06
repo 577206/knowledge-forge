@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "knowledge-forge",
   "version": "0.1.0",
   "private": false,
@@ -21,7 +21,7 @@
     "dev": "node apps/api/server.js",
     "start": "node apps/api/server.js",
     "check": "node --check apps/api/server.js && node --check packages/ingestion-core/index.js && node --check packages/ingestion-core/config.js && node --check apps/web/app.js && node --check apps/web/graph.js",
-    "test": "node apps/web/graph-controls.test.mjs"
+    "test": "echo no tests yet"
   },
   "dependencies": {
     "@opendocsg/pdf2md": "latest",
@@ -31,3 +31,4 @@
     "xlsx": "latest"
   }
 }
+

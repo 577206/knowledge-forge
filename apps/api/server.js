@@ -232,6 +232,244 @@ function runNotebookLmAuthCheck() {
   });
 }
 
+function getNotebookLmActions(connected = false) {
+  return [
+    { id: 'auth-check', label: '检查登录状态', available: true, output: 'status' },
+    { id: 'open-login', label: '打开 NotebookLM 登录', available: true, requiresConfirmation: true, output: 'browser' },
+    { id: 'write-sample-digest', label: '写入示例 Digest 到 Obsidian Inbox', available: true, requiresConfirmation: true, output: 'markdown' },
+    { id: 'create-notebook', label: '创建 Notebook', available: connected, requiresConnection: true, output: 'notebooklm', reason: connected ? undefined : 'NotebookLM is not connected' },
+    { id: 'add-source', label: '添加 Source', available: connected, requiresConnection: true, output: 'notebooklm', reason: connected ? undefined : 'NotebookLM is not connected' },
+    { id: 'ask', label: '提问生成 Digest', available: connected, requiresConnection: true, output: 'markdown', reason: connected ? undefined : 'NotebookLM is not connected' },
+  ];
+}
+
+function getLocalForgeActions() {
+  return [
+    { id: 'summary', label: '生成摘要', description: '基于本地规则摘要生成可复习 Markdown。', available: true, output: 'markdown' },
+    { id: 'study-guide', label: '生成学习指南', description: '生成学习目标、重点概念、复习路径。', available: true, output: 'markdown' },
+    { id: 'quiz', label: '生成测验题', description: '生成选择题/简答题草稿。', available: true, output: 'markdown' },
+    { id: 'flashcards', label: '生成闪卡', description: '生成 Q/A 卡片，可后续导出 Anki。', available: true, output: 'markdown' },
+    { id: 'pdf', label: '导出 PDF', description: 'PDF 渲染器尚未接入，演示版先返回 501。', available: false, reason: 'PDF renderer not wired yet', output: 'pdf' },
+  ];
+}
+
+function extractSection(content, heading) {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = String(content || '').match(new RegExp(`## ${escaped}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`, 'i'));
+  return match?.[1]?.trim() || '';
+}
+
+function extractBullets(content, limit = 8) {
+  return String(content || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^[-*]\s+/.test(line))
+    .slice(0, limit)
+    .map((line) => line.replace(/^[-*]\s+/, ''));
+}
+
+function extractHeadings(content, limit = 10) {
+  return Array.from(String(content || '').matchAll(/^#{1,3}\s+(.+)$/gm))
+    .map((match) => match[1].trim())
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function extractKeywordsFromNote(content, limit = 12) {
+  const keywordLine = String(content || '').match(/关键词[:：]\s*([^\n]+)/);
+  if (keywordLine) {
+    return keywordLine[1].split(/[、,，]/).map((item) => item.trim()).filter(Boolean).slice(0, limit);
+  }
+  return Array.from(new Set(String(content || '').match(/[A-Za-z][A-Za-z0-9-]{2,}|[\u4e00-\u9fa5]{2,8}/g) || []))
+    .filter((word) => !/^title|type|status|created|updated|source|parser|tags$/i.test(word))
+    .slice(0, limit);
+}
+
+function buildLocalForgeArtifact(action, note) {
+  const title = note.title.replace(/^\d{4}-\d{2}-\d{2}\s+-\s+/, '');
+  const content = note.content || '';
+  const summary = extractSection(content, '规则摘要');
+  const outline = extractSection(content, 'Markdown 大纲');
+  const concepts = extractSection(content, '关键概念候选') || extractSection(content, '关键字段/概念候选');
+  const bullets = extractBullets(summary || content, 8);
+  const headings = extractHeadings(content, 10);
+  const keywords = extractKeywordsFromNote(content, 12);
+
+  if (action === 'pdf') {
+    const error = new Error('PDF export is not wired in this demo build.');
+    error.statusCode = 501;
+    throw error;
+  }
+
+  if (action === 'summary') {
+    return {
+      title: `Summary - ${title}`,
+      content: [
+        `# Summary - ${title}`,
+        '',
+        '## 核心摘要',
+        bullets.length ? bullets.map((item) => `- ${item}`).join('\n') : '- 暂未提取到明确摘要，请回到原始笔记复核。',
+        '',
+        '## 关键词',
+        keywords.length ? keywords.map((item) => `- ${item}`).join('\n') : '- 待提取',
+        '',
+        '## 大纲',
+        outline || (headings.length ? headings.map((item) => `- ${item}`).join('\n') : '- 待提取'),
+      ].join('\n'),
+    };
+  }
+
+  if (action === 'study-guide') {
+    return {
+      title: `Study Guide - ${title}`,
+      content: [
+        `# Study Guide - ${title}`,
+        '',
+        '## 学习目标',
+        '- 用自己的话复述这份材料的核心问题。',
+        '- 解释关键概念之间的关系。',
+        '- 产出一个可执行的小练习或项目应用。',
+        '',
+        '## 重点概念',
+        concepts || (keywords.length ? keywords.map((item) => `- [[${item}]]`).join('\n') : '- 待整理'),
+        '',
+        '## 复习路径',
+        '1. 先读摘要，标记不懂的概念。',
+        '2. 回到原文对应小节，补齐定义和例子。',
+        '3. 用费曼法写 5 句话解释。',
+        '4. 做一轮测验题，错题回链到原笔记。',
+        '',
+        '## 原始大纲',
+        outline || (headings.length ? headings.map((item) => `- ${item}`).join('\n') : '- 待提取'),
+      ].join('\n'),
+    };
+  }
+
+  if (action === 'quiz') {
+    const stems = headings.length ? headings : keywords.slice(0, 6);
+    return {
+      title: `Quiz - ${title}`,
+      content: [
+        `# Quiz - ${title}`,
+        '',
+        '## 简答题',
+        ...(stems.slice(0, 6).map((item, index) => `${index + 1}. 请解释「${item}」的核心含义，并举一个应用例子。`)),
+        '',
+        '## 选择题草稿',
+        ...(keywords.slice(0, 4).map((item, index) => [
+          `${index + 1}. 关于「${item}」，下列哪一项最准确？`,
+          '   - A. 它是材料中的关键概念，需要结合上下文理解。',
+          '   - B. 它与本文完全无关。',
+          '   - C. 它只能通过死记硬背掌握。',
+          '   - D. 它不需要复习。',
+          '   - 答案：A',
+        ].join('\n'))),
+      ].join('\n'),
+    };
+  }
+
+  if (action === 'flashcards') {
+    const cards = keywords.slice(0, 10).map((item) => [`Q: ${item} 是什么？`, `A: 用原文和自己的话解释「${item}」，并补一个例子。`].join('\n'));
+    return {
+      title: `Flashcards - ${title}`,
+      content: [
+        `# Flashcards - ${title}`,
+        '',
+        ...cards.map((card) => `## Card\n\n${card}`),
+      ].join('\n\n'),
+    };
+  }
+
+  const error = new Error(`Unsupported Local Forge action: ${action}`);
+  error.statusCode = 400;
+  throw error;
+}
+
+async function writeInboxArtifact(title, content) {
+  const inboxDir = safeVaultPath('inbox');
+  await fsp.mkdir(inboxDir, { recursive: true });
+  const safeTitle = title.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 90) || 'Knowledge Forge Artifact';
+  const fileName = `${new Date().toISOString().slice(0, 10)} - ${safeTitle}.md`;
+  const fullPath = path.join(inboxDir, fileName);
+  const body = `---\ntitle: ${JSON.stringify(title)}\ntype: generated-artifact\nstatus: inbox\ncreated: ${new Date().toISOString()}\ngenerator: knowledge-forge-local\n---\n\n${content}\n`;
+  await fsp.writeFile(fullPath, body, 'utf8');
+  return {
+    artifactPath: toVaultRelative(fullPath),
+    fullPath,
+    obsidianUri: makeObsidianOpenUri(fullPath),
+  };
+}
+
+async function handleLocalForgeGenerate(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    const action = String(body.action || '').trim();
+    if (!action) return sendJson(res, 400, { ok: false, error: 'Missing action' });
+    if (!body.notePath) return sendJson(res, 400, { ok: false, error: 'Missing notePath' });
+    const note = await readVaultNote(body.notePath);
+    const artifact = buildLocalForgeArtifact(action, note);
+    const writeResult = body.writeToInbox === false ? null : await writeInboxArtifact(artifact.title, artifact.content);
+    return sendJson(res, 200, {
+      ok: true,
+      action,
+      title: artifact.title,
+      format: 'markdown',
+      content: artifact.content,
+      artifactPath: writeResult?.artifactPath,
+      obsidianUri: writeResult?.obsidianUri,
+      recentInbox: await listInbox(20),
+    });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 500, {
+      ok: false,
+      error: error.message,
+      fallbackActions: error.statusCode === 501 ? ['summary', 'study-guide'] : undefined,
+    });
+  }
+}
+
+async function handleNotebookLmAction(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    const action = String(body.action || '').trim();
+    const notebookLmExe = path.join(root, '.venv-notebooklm', 'Scripts', 'notebooklm.exe');
+
+    if (action === 'auth-check') {
+      const status = await runNotebookLmAuthCheck();
+      return sendJson(res, 200, { ok: true, action, ...status, actions: getNotebookLmActions(status.connected) });
+    }
+
+    if (action === 'open-login' || action === 'login') {
+      const child = spawn(notebookLmExe, ['login', '--browser', 'chrome', '--fresh'], { cwd: root, detached: true, stdio: 'ignore' });
+      child.unref();
+      return sendJson(res, 200, { ok: true, action: 'open-login', status: 'started', message: 'NotebookLM login opened in Chrome. Complete login, then run auth-check.' });
+    }
+
+    if (action === 'write-sample-digest') {
+      const title = body.title || 'NotebookLM Demo Digest';
+      const content = [
+        `# ${title}`,
+        '',
+        '## Source-grounded digest',
+        '- This is a local demo artifact for the NotebookLM → Agent → Obsidian flow.',
+        '- Real NotebookLM notebook/source/ask automation is intentionally behind a confirmation action.',
+        '- After auth is connected, this endpoint can be extended to call create-notebook/add-source/ask.',
+        '',
+        '## Next review actions',
+        '- [ ] Replace demo bullets with NotebookLM answer JSON.',
+        '- [ ] Verify important claims against the original sources.',
+        '- [ ] Promote reviewed notes out of inbox.',
+      ].join('\n');
+      const writeResult = await writeInboxArtifact(title, content);
+      return sendJson(res, 200, { ok: true, action, status: 'completed', title, format: 'markdown', content, ...writeResult, recentInbox: await listInbox(20) });
+    }
+
+    return sendJson(res, 501, { ok: false, action, error: 'This NotebookLM action is declared for the UI but not wired in the demo backend yet.', implementedActions: ['auth-check', 'open-login', 'write-sample-digest'] });
+  } catch (error) {
+    return sendJson(res, 500, { ok: false, error: error.message });
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (req.method === 'GET' && url.pathname === '/api/health') {
@@ -302,11 +540,21 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 400, { error: error.message });
     }
   }
+  if (req.method === 'GET' && url.pathname === '/api/local-forge/actions') {
+    return sendJson(res, 200, { ok: true, actions: getLocalForgeActions() });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/local-forge/generate') {
+    return handleLocalForgeGenerate(req, res);
+  }
+  if (req.method === 'POST' && url.pathname === '/api/notebooklm/action') {
+    return handleNotebookLmAction(req, res);
+  }
   if (req.method === 'GET' && url.pathname === '/api/notebooklm/status') {
     const status = await runNotebookLmAuthCheck();
     return sendJson(res, 200, {
       ok: true,
       ...status,
+      actions: getNotebookLmActions(status.connected),
       safety: {
         unofficial: true,
         authStorage: 'local file only; never expose cookies or storage_state.json',
