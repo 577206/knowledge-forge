@@ -1,12 +1,27 @@
 {
   "name": "knowledge-forge",
   "version": "0.1.0",
-  "private": true,
-  "description": "AI ingestion engine for Obsidian knowledge vaults and Excel data objects.",
+  "private": false,
+  "description": "Local-first ingestion workbench for Obsidian and Markdown knowledge vaults.",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/577206/knowledge-forge.git"
+  },
+  "keywords": [
+    "obsidian",
+    "markdown",
+    "knowledge-base",
+    "rag",
+    "local-first",
+    "ingestion"
+  ],
   "scripts": {
     "dev": "node apps/api/server.js",
-    "check": "node --check apps/api/server.js && node --check packages/ingestion-core/index.js"
+    "start": "node apps/api/server.js",
+    "check": "node --check apps/api/server.js && node --check packages/ingestion-core/index.js && node --check packages/ingestion-core/config.js && node --check apps/web/app.js && node --check apps/web/graph.js",
+    "test": "node apps/web/graph-controls.test.mjs"
   },
   "dependencies": {
     "@opendocsg/pdf2md": "latest",

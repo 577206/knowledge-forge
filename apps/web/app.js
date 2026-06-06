@@ -8,6 +8,7 @@ const links = document.getElementById('links');
 const fields = document.getElementById('fields');
 const inboxList = document.getElementById('inboxList');
 const inboxCount = document.getElementById('inboxCount');
+const openObsidianBtn = document.getElementById('openObsidianBtn');
 const openVaultBtn = document.getElementById('openVaultBtn');
 const refreshInboxBtn = document.getElementById('refreshInboxBtn');
 
@@ -97,6 +98,17 @@ async function openVaultPath(relativePath = '') {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ path: relativePath }),
   });
+}
+
+async function openObsidianPath(relativePath = '') {
+  const res = await fetch('/api/obsidian/open', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path: relativePath }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Open Obsidian failed');
+  return data;
 }
 
 async function previewNote(relativePath) {
@@ -208,6 +220,19 @@ async function upload(file) {
 
 pickBtn.addEventListener('click', () => input.click());
 input.addEventListener('change', () => upload(input.files[0]));
+openObsidianBtn.addEventListener('click', async () => {
+  try {
+    const originalText = openObsidianBtn.textContent;
+    openObsidianBtn.disabled = true;
+    openObsidianBtn.textContent = '正在打开 Obsidian...';
+    await openObsidianPath('');
+    openObsidianBtn.textContent = '已发送打开指令';
+    setTimeout(() => { openObsidianBtn.textContent = originalText; openObsidianBtn.disabled = false; }, 1200);
+  } catch (error) {
+    openObsidianBtn.disabled = false;
+    show(`失败：${error.message}`);
+  }
+});
 openVaultBtn.addEventListener('click', () => openVaultPath(''));
 refreshInboxBtn.addEventListener('click', () => refreshInbox());
 

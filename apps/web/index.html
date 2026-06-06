@@ -10,29 +10,34 @@
     <main class="shell">
       <section class="hero">
         <div>
-          <p class="eyebrow">Knowledge Forge · 知识库直通车</p>
-          <h1>上传，写入，马上看见</h1>
-          <p class="subtitle">最小闭环版：文件直接写入你的 LLM-Wiki/inbox，页面展示最近笔记，并可一键打开 Obsidian / 本地文件夹。</p>
+          <h1>Knowledge Forge</h1>
+          <p class="subtitle">知识摄入、Inbox 预览和图谱探索的本地工作台。</p>
         </div>
         <div class="status" id="health">检查服务中...</div>
       </section>
 
-      <section class="quick-actions">
+      <nav class="view-tabs">
+        <button class="tab-btn active" data-view="ingest">摄入工作台</button>
+        <button class="tab-btn" data-view="graph">知识图谱</button>
+      </nav>
+
+      <section class="quick-actions" data-view-section="ingest">
+        <button id="openObsidianBtn" class="obsidian-btn">打开 Obsidian 知识库</button>
         <button id="openVaultBtn" class="ghost-btn">打开知识库文件夹</button>
         <button id="refreshInboxBtn" class="ghost-btn">刷新 Inbox</button>
       </section>
 
-      <section class="card upload-card">
+      <section class="card upload-card" data-view-section="ingest">
         <div id="dropzone" class="dropzone">
           <div class="drop-icon">⇪</div>
-          <h2>拖文件到这里</h2>
-          <p>支持 .pdf / .md / .txt / .xlsx / .xls / .csv</p>
-          <button id="pickBtn">选择文件并写入知识库</button>
+          <h2>拖入文件</h2>
+          <p>.pdf / .md / .txt / .xlsx / .xls / .csv</p>
+          <button id="pickBtn">选择文件</button>
           <input id="fileInput" type="file" hidden />
         </div>
       </section>
 
-      <section class="workspace-grid">
+      <section class="workspace-grid" data-view-section="ingest">
         <div class="card result-card">
           <h2>本次导入</h2>
           <div id="summary" class="summary muted">等待上传...</div>
@@ -52,7 +57,50 @@
           <div id="inboxList" class="inbox-list"></div>
         </aside>
       </section>
+
+      <section class="graph-view" data-view-section="graph" hidden>
+        <div class="card graph-card">
+          <div class="panel-title">
+            <h2>知识图谱 · Graph View</h2>
+            <span id="graphStats" class="muted">加载中...</span>
+          </div>
+          <div class="graph-toolbar">
+            <input id="graphSearch" type="search" placeholder="搜索笔记，回车定位" />
+            <label class="toggle"><input type="checkbox" id="graphIncludeInbox" checked /> 含 inbox</label>
+            <button id="graphReset" class="ghost-btn">重置视图</button>
+            <button id="graphReload" class="ghost-btn">重新加载</button>
+          </div>
+          <div class="graph-controls" aria-label="图谱参数">
+            <label class="range-field">
+              <span><strong>节点作用力</strong><output id="graphRepulsionValue">2600</output></span>
+              <input id="graphRepulsion" type="range" min="800" max="8000" step="100" value="2600" />
+            </label>
+            <label class="range-field">
+              <span><strong>连接长度</strong><output id="graphLinkLengthValue">96</output></span>
+              <input id="graphLinkLength" type="range" min="40" max="180" step="4" value="96" />
+            </label>
+            <label class="range-field">
+              <span><strong>节点大小</strong><output id="graphNodeSizeValue">1.0</output></span>
+              <input id="graphNodeSize" type="range" min="0.6" max="1.8" step="0.1" value="1.0" />
+            </label>
+          </div>
+          <div class="graph-stage">
+            <canvas id="graphCanvas"></canvas>
+            <div id="graphLegend" class="graph-legend"></div>
+            <div id="graphTooltip" class="graph-tooltip" hidden></div>
+            <aside id="graphNotePanel" class="graph-note-panel" hidden>
+              <div class="note-panel-head">
+                <strong id="notePanelTitle">笔记</strong>
+                <button id="notePanelClose" class="note-panel-close" type="button">×</button>
+              </div>
+              <div id="notePanelMeta" class="note-panel-meta"></div>
+              <div id="notePanelBody" class="note-panel-body"></div>
+            </aside>
+          </div>
+        </div>
+      </section>
     </main>
     <script type="module" src="/app.js"></script>
+    <script type="module" src="/graph.js"></script>
   </body>
 </html>

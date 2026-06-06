@@ -6,7 +6,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import Busboy from 'busboy';
-import { ingestFile, indexVault } from '../../packages/ingestion-core/index.js';
+import { ingestFile, indexVault, buildVaultGraph } from '../../packages/ingestion-core/index.js';
 import { DEFAULT_VAULT_PATH } from '../../packages/ingestion-core/config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -96,6 +96,28 @@ function openLocalPath(targetPath) {
   child.unref();
 }
 
+function toPortablePath(targetPath) {
+  return String(targetPath || '').replaceAll('\\', '/');
+}
+
+function makeObsidianOpenUri(targetPath) {
+  return `obsidian://open?path=${encodeURIComponent(targetPath)}`;
+}
+
+function openObsidianPath(targetPath) {
+  const uri = makeObsidianOpenUri(targetPath);
+  const child = spawn('explorer.exe', [uri], { detached: true, stdio: 'ignore' });
+  child.unref();
+  return uri;
+}
+
+async function readJsonBody(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  if (!chunks.length) return {};
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
 async function serveStatic(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname === '/' ? '/index.html' : url.pathname;
@@ -147,10 +169,10 @@ function handleUpload(req, res) {
         kind: result.parsed.kind,
         title: result.parsed.title,
         parser: result.parsed.parser,
-        notePath: result.notePath,
+        notePath: toPortablePath(result.notePath),
         noteRelativePath: toVaultRelative(result.notePath),
         obsidianUri: `obsidian://open?path=${encodeURIComponent(result.notePath)}`,
-        manifestPath: result.manifestPath,
+        manifestPath: toPortablePath(result.manifestPath),
         analysis: result.parsed.analysis,
         linkCandidates: result.linkCandidates,
         conceptCandidates: result.conceptCandidates,
@@ -187,6 +209,15 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 500, { error: error.message });
     }
   }
+  if (req.method === 'GET' && url.pathname === '/api/vault/graph') {
+    try {
+      const includeInbox = url.searchParams.get('includeInbox') !== 'false';
+      const graph = await buildVaultGraph(DEFAULT_VAULT_PATH, { includeInbox });
+      return sendJson(res, 200, { ok: true, ...graph });
+    } catch (error) {
+      return sendJson(res, 500, { error: error.message });
+    }
+  }
   if (req.method === 'GET' && url.pathname === '/api/vault/inbox') {
     try {
       const limit = Number(url.searchParams.get('limit') || 30);
@@ -205,12 +236,25 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === 'POST' && url.pathname === '/api/vault/open') {
     try {
-      const chunks = [];
-      for await (const chunk of req) chunks.push(chunk);
-      const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {};
+      const body = await readJsonBody(req);
       const target = body.path ? safeVaultPath(body.path) : DEFAULT_VAULT_PATH;
       openLocalPath(target);
       return sendJson(res, 200, { ok: true, opened: body.path || DEFAULT_VAULT_PATH });
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message });
+    }
+  }
+  if (req.method === 'POST' && url.pathname === '/api/obsidian/open') {
+    try {
+      const body = await readJsonBody(req);
+      const target = body.path ? safeVaultPath(body.path) : DEFAULT_VAULT_PATH;
+      const obsidianUri = openObsidianPath(target);
+      return sendJson(res, 200, {
+        ok: true,
+        opened: body.path || DEFAULT_VAULT_PATH,
+        vaultPath: DEFAULT_VAULT_PATH,
+        obsidianUri,
+      });
     } catch (error) {
       return sendJson(res, 400, { error: error.message });
     }

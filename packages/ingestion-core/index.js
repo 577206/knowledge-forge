@@ -392,6 +392,60 @@ export async function indexVault(vaultPath = DEFAULT_VAULT_PATH, options = {}) {
   return notes;
 }
 
+export async function buildVaultGraph(vaultPath = DEFAULT_VAULT_PATH, options = {}) {
+  const { includeInbox = true } = options;
+  const notes = await indexVault(vaultPath, { includeInbox });
+
+  // Build lookup by title and by basename so wikilinks resolve robustly.
+  const byTitle = new Map();
+  for (const note of notes) {
+    const base = note.path.split('/').pop().replace(/\.md$/i, '');
+    if (!byTitle.has(note.title)) byTitle.set(note.title, note);
+    if (!byTitle.has(base)) byTitle.set(base, note);
+  }
+
+  const nodes = notes.map((note) => {
+    const topFolder = note.path.includes('/') ? note.path.split('/')[0] : 'root';
+    return {
+      id: note.path,
+      label: note.title,
+      group: topFolder,
+      type: note.type || 'note',
+      status: note.status || '',
+      tags: note.tags || [],
+      inbox: note.path.startsWith('inbox/'),
+      degree: 0,
+    };
+  });
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
+  const edgeSet = new Set();
+  const edges = [];
+  for (const note of notes) {
+    for (const link of note.wikilinks || []) {
+      const target = byTitle.get(link) || byTitle.get(String(link).trim());
+      if (!target || target.path === note.path) continue;
+      const key = `${note.path}\u0000${target.path}`;
+      if (edgeSet.has(key)) continue;
+      edgeSet.add(key);
+      edges.push({ source: note.path, target: target.path });
+      const a = nodeById.get(note.path);
+      const b = nodeById.get(target.path);
+      if (a) a.degree += 1;
+      if (b) b.degree += 1;
+    }
+  }
+
+  const groups = Array.from(new Set(nodes.map((n) => n.group))).sort();
+  return {
+    nodeCount: nodes.length,
+    edgeCount: edges.length,
+    groups,
+    nodes,
+    edges,
+  };
+}
+
 export async function matchVaultTopics(parsed, vaultPath = DEFAULT_VAULT_PATH, limit = 8) {
   const notes = await indexVault(vaultPath, { includeInbox: false });
   const sourceText = parsed.kind === 'data'

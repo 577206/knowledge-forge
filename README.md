@@ -21,6 +21,41 @@ AI/规则系统负责提出结构化建议，知识库最终结构由人确认�
 
 这也是为什么当前版本没有直接做全自动归档。知识库是人的第二大脑，不能让自动化在没有复核的情况下随意改动长期结构。
 
+## 5 分钟上手
+
+### Windows：双击启动
+
+```text
+start.bat
+```
+
+第一次运行会让你配置 `.env.local`：
+
+```text
+KF_VAULT_PATH=D:\Your\Obsidian\Vault
+```
+
+然后打开：
+
+```text
+http://localhost:4177
+```
+
+把 PDF / Markdown / TXT / Excel / CSV 拖进去，生成的 Markdown 笔记会进入：
+
+```text
+<your-vault>/inbox/
+```
+
+### 命令行启动
+
+```powershell
+npm install
+npm run dev
+```
+
+详细说明见：[`docs/QUICKSTART.md`](docs/QUICKSTART.md)
+
 ## 当前能力
 
 - 本地 Web 页面：`http://localhost:4177`
