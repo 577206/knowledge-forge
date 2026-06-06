@@ -1,9 +1,69 @@
 # Knowledge Forge
 
-> Local-first second-brain workbench for Obsidian, NotebookLM and Markdown knowledge vaults.  
-> 把散乱资料炼成可复用知识：上传、解析、复核、进入 Obsidian，并可选接入 NotebookLM 生成摘要、测验、闪卡、报告/PDF 等学习材料。
+> **Agent-first 的本地知识摄入与学习工作台。**  
+> 融合 Obsidian 的长期知识库能力与 Google NotebookLM 的深度阅读能力，为 Claude Code / OpenClaw / Cursor / Codex 等 AI Agent 时代打造一套可配置、可复核、可持续积累的学习工作流。
 
-Knowledge Forge 不是又一个“文件上传器”。它想解决的是一个更真实的问题：
+Knowledge Forge 的创作理念很简单：
+
+> 让用户不再独自面对散乱资料、复杂配置和一次性 AI 对话，而是把学习系统交给自己的 Agent 协同搭建、运行和迭代。
+
+你只需要把这个 GitHub 仓库链接发给你的 AI Agent：
+
+```text
+https://github.com/577206/knowledge-forge
+```
+
+然后告诉它：
+
+```text
+请帮我安装和配置 Knowledge Forge，先问我要启用哪些能力。
+```
+
+Agent 会引导你选择功能、安装依赖、生成配置、启动程序，并帮你排查问题。你可以按需启用本地资料整理、期末复习、Obsidian 联动、NotebookLM 联动等能力，逐步把散乱的 PDF、课件、论文、Excel 和 Markdown 资料，炼成可复习、可追溯、可沉淀的长期知识。
+
+Knowledge Forge 适合但不限于：
+
+- **期末复习备考**：课程资料摄入、考点整理、学习指南、闪卡、测验题、冲刺计划。
+- **学术研究与论文阅读**：论文解析、NotebookLM 深度阅读、摘要消化、引用与概念沉淀。
+- **报告与项目资料整理**：把网页、文档、表格和研究材料转成结构化 Markdown。
+- **个人第二大脑构建**：与 Obsidian Vault 协同，把 AI 生成内容纳入长期知识库。
+- **Agent 协同学习工作流**：让 Agent 成为配置员、整理员、复盘教练和知识库维护者。
+
+目标不是再做一个“文件上传器”，而是帮助你快速成为 **AI 时代下更高效的学习者和知识工作者**。
+
+## 推荐：全功能安装
+
+Knowledge Forge 支持模块化启用，但我强烈推荐新用户直接选择 **Full Setup 全功能安装**。这也是作者自己的使用方式：
+
+```text
+Local Forge 本地摄入
++ Final Exam Review 期末复习工作流
++ Obsidian 长期知识库
++ NotebookLM 深度阅读
++ Agent 协同配置、排障与复盘
+```
+
+全功能安装的好处是：
+
+- **资料进得来**：PDF、课件、Markdown、Excel 都能先进入本地工作台。
+- **理解更深入**：NotebookLM 负责长文档、论文、课程资料的 source-grounded 阅读和问答。
+- **知识留得住**：Obsidian 把结果沉淀进长期第二大脑，而不是散落在一次性聊天里。
+- **复习更直接**：期末复习流程可以生成学习指南、闪卡、测验、冲刺计划和考点清单。
+- **Agent 全程协同**：你的 Agent 不只是安装工具，还能帮你选择功能、生成配置、解释报错、复核笔记和持续迭代。
+
+如果你暂时只想本地使用，也可以先启用 Local Forge；后续要加入 Obsidian、NotebookLM 或期末复习增强时，可以通过兼容的配置接口继续添加，不需要推倒重装。
+
+给 Agent 的快速指令：
+
+```text
+请帮我安装和配置 Knowledge Forge。
+推荐使用 Full Setup；如果我想简化，再问我要启用哪些能力。
+请先阅读 AGENTS.md，然后运行 doctor/setup/configure/start/verify 脚本。
+```
+
+---
+
+Knowledge Forge 想解决的是一个更真实的问题：
 
 ```text
 资料很多 → AI 问完就散了 → 笔记没有长期结构 → 下次还是从零开始

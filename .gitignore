@@ -1,8 +1,10 @@
 node_modules/
 .uploads/
+# Local configuration
 .env
 .env.*
 !.env.example
+knowledge-forge.config.json
 .DS_Store
 Thumbs.db
 *.log

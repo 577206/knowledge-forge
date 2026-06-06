@@ -233,7 +233,7 @@ summary { color: #2563eb; cursor: pointer; font-weight: 850; }
 @media (max-width: 900px) {
   .app-shell { width: min(100% - 24px, 760px); padding-top: 18px; }
   .topbar, .flow-head { flex-direction: column; }
-  .route-grid, .result-grid, .notebook-demo-grid { grid-template-columns: 1fr; }
+  .route-grid, .result-grid, .notebook-demo-grid, .control-dashboard, .capability-grid { grid-template-columns: 1fr; }
   .route-card { min-height: auto; }
   h1 { font-size: 44px; }
 }
@@ -246,4 +246,96 @@ summary { color: #2563eb; cursor: pointer; font-weight: 850; }
   .subtitle { font-size: 15px; }
   .topbar-actions, .button-stack, .panel-title { width: 100%; }
   .topbar-actions > *, .button-stack > *, .panel-title button { width: 100%; }
+}
+
+
+.control-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, .82fr);
+  gap: 18px;
+  margin: 18px 0;
+}
+.dark-panel {
+  background: linear-gradient(145deg, rgba(15,23,42,.88), rgba(30,41,59,.74));
+  color: var(--ink);
+  border-color: var(--line);
+}
+.light-title h3 { color: var(--ink); }
+.light-title span { color: #cbd5e1; }
+.muted-light { color: #cbd5e1; }
+.capability-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.capability-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 18px;
+  background: rgba(255,255,255,.08);
+}
+.capability-card.ready { border-color: rgba(34,197,94,.42); background: rgba(34,197,94,.10); }
+.capability-card.warning { border-color: rgba(245,158,11,.42); background: rgba(245,158,11,.10); }
+.capability-card.disabled { opacity: .74; }
+.capability-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.capability-head strong { font-size: 15px; }
+.capability-head span { padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,.12); font-size: 12px; font-weight: 900; }
+.capability-card p { margin: 0; color: #d1d5db; line-height: 1.55; font-size: 13px; }
+.capability-card small { color: #cbd5e1; word-break: break-all; }
+.artifact-registry { display: grid; gap: 10px; max-height: 420px; overflow: auto; }
+.registry-item {
+  display: grid;
+  gap: 6px;
+  padding: 13px;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 16px;
+  background: rgba(255,255,255,.08);
+}
+.registry-item > div:first-child { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.registry-item span { padding: 3px 7px; border-radius: 999px; color: #111827; background: #fbbf24; font-size: 11px; font-weight: 900; }
+.registry-item small { color: #cbd5e1; word-break: break-all; }
+.registry-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.registry-actions button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #93c5fd;
+  font-weight: 900;
+}
+
+.manual-workflow { background: rgba(255,255,255,.92); color: var(--ink-dark); }
+.workflow-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.workflow-steps article { padding: 14px; border: 1px solid var(--line-dark); border-radius: 16px; background: #f8fafc; }
+.workflow-steps strong { color: #1d4ed8; }
+.workflow-steps p { margin: 8px 0 0; color: #4b5563; line-height: 1.6; font-size: 13px; }
+.copy-btn { justify-self: start; border: 0; background: #eff6ff; color: #2563eb; border-radius: 999px; padding: 6px 10px; font-weight: 900; }
+@media (max-width: 900px) { .workflow-steps { grid-template-columns: 1fr; } }
+
+.capture-panel textarea {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line-dark);
+  border-radius: 16px;
+  resize: vertical;
+  color: #111827;
+  background: #fff;
+  line-height: 1.55;
+}
+.notebook-link-box select {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid var(--line-dark);
+  border-radius: 14px;
+  color: #111827;
+  background: #fff;
+}
+
+.agent-prompt-panel { grid-column: 1 / -1; }
+.agent-prompt-box {
+  max-height: 260px;
+  margin: 0;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(2,6,23,.72);
+  color: #e5e7eb;
+  white-space: pre-wrap;
 }

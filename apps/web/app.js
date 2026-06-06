@@ -25,6 +25,16 @@ const notebookActions = document.getElementById('notebookActions');
 const notebookLink = document.getElementById('notebookLink');
 const writeNotebookDemoBtn = document.getElementById('writeNotebookDemoBtn');
 const notebookActionResult = document.getElementById('notebookActionResult');
+const capabilityCenter = document.getElementById('capabilityCenter');
+const artifactRegistry = document.getElementById('artifactRegistry');
+const refreshCapabilitiesBtn = document.getElementById('refreshCapabilitiesBtn');
+const refreshArtifactsBtn = document.getElementById('refreshArtifactsBtn');
+const agentPromptBox = document.getElementById('agentPromptBox');
+const copyAgentPromptBtn = document.getElementById('copyAgentPromptBtn');
+const notebookCaptureTitle = document.getElementById('notebookCaptureTitle');
+const notebookOutputType = document.getElementById('notebookOutputType');
+const notebookCaptureText = document.getElementById('notebookCaptureText');
+const captureNotebookPasteBtn = document.getElementById('captureNotebookPasteBtn');
 
 const actionLabels = {
   summary: 'Summary',
@@ -32,6 +42,7 @@ const actionLabels = {
   quiz: 'Quiz',
   flashcards: 'Flashcards',
   pdf: 'PDF',
+  'final-exam-review': 'Final Exam Review',
   'mind-map': 'Mind Map',
 };
 
@@ -41,6 +52,101 @@ let currentTitle = '';
 
 function escapeHtml(text) {
   return String(text ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[ch]));
+}
+
+
+function statusLabel(status) {
+  return {
+    ready: '可用',
+    disabled: '未启用',
+    needs_config: '待配置',
+    needs_login: '待登录',
+    needs_install: '待安装',
+  }[status] || status || '未知';
+}
+
+function statusClass(status) {
+  if (status === 'ready') return 'ready';
+  if (status === 'disabled') return 'disabled';
+  return 'warning';
+}
+
+
+async function loadAgentPrompt() {
+  if (!agentPromptBox) return;
+  try {
+    const res = await fetch('/api/agent/quick-start');
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Agent prompt failed');
+    agentPromptBox.textContent = data.prompt;
+  } catch (error) {
+    agentPromptBox.textContent = `Agent 启动提示词加载失败：${error.message}`;
+  }
+}
+
+async function loadCapabilities() {
+  if (!capabilityCenter) return;
+  capabilityCenter.innerHTML = '<p class="muted-light">正在加载能力状态...</p>';
+  try {
+    const res = await fetch('/api/capabilities');
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Capabilities failed');
+    capabilityCenter.innerHTML = data.capabilities.map((cap) => `
+      <article class="capability-card ${statusClass(cap.status)}">
+        <div class="capability-head">
+          <strong>${escapeHtml(cap.label)}</strong>
+          <span>${escapeHtml(statusLabel(cap.status))}</span>
+        </div>
+        <p>${escapeHtml(cap.description)}</p>
+        ${cap.skillRepo ? `<small>Skill: ${escapeHtml(cap.skillRepo)}</small>` : ''}
+        ${cap.details?.vaultPath ? `<small>Vault: ${escapeHtml(cap.details.vaultPath)}</small>` : ''}
+        ${cap.details?.message ? `<small>${escapeHtml(cap.details.message)}</small>` : ''}
+      </article>
+    `).join('');
+  } catch (error) {
+    capabilityCenter.innerHTML = `<p class="muted-light">能力状态加载失败：${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function loadArtifacts() {
+  if (!artifactRegistry) return;
+  try {
+    const res = await fetch('/api/artifacts?limit=12');
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Artifacts failed');
+    if (!data.artifacts.length) {
+      artifactRegistry.innerHTML = '<p class="muted-light">还没有生成记录。</p>';
+      return;
+    }
+    artifactRegistry.innerHTML = data.artifacts.map((item) => `
+      <article class="registry-item">
+        <div>
+          <strong>${escapeHtml(item.title || item.action || 'Artifact')}</strong>
+          <span>${escapeHtml(item.engine || 'unknown')}</span>
+        </div>
+        <small>${escapeHtml(item.capability || '')} · ${escapeHtml(formatTime(item.createdAt))}</small>
+        <small>${escapeHtml(item.artifactPath || '')}</small>
+        <div class="registry-actions">
+          ${item.artifactPath ? `<button type="button" data-preview="${escapeHtml(item.artifactPath)}">预览</button>` : ''}
+          ${item.artifactPath ? `<button type="button" data-open-obsidian="${escapeHtml(item.artifactPath)}">Obsidian</button>` : ''}
+          ${item.artifactPath ? `<button type="button" data-copy-path="${escapeHtml(item.artifactPath)}">复制路径</button>` : ''}
+        </div>
+      </article>
+    `).join('');
+  } catch (error) {
+    artifactRegistry.innerHTML = `<p class="muted-light">生成记录加载失败：${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function openObsidian(relativePath = '', method = 'protocol') {
+  const res = await fetch('/api/obsidian/open', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path: relativePath, method }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.ok === false) throw new Error(data.error || 'Open Obsidian failed');
+  return data;
 }
 
 function showView(name) {
@@ -274,6 +380,7 @@ async function runSelectedLocalActions() {
       <article class="artifact-item">
         <div><strong>${escapeHtml(actionLabels[item.action] || item.action)}</strong><small>${escapeHtml(item.data.artifactPath || '未写入文件')}</small></div>
         ${item.data.obsidianUri ? `<a href="${escapeHtml(item.data.obsidianUri)}">Obsidian</a>` : ''}
+        ${item.data.artifactPath ? `<button class="copy-btn" type="button" data-copy-path="${escapeHtml(item.data.artifactPath)}">复制路径</button>` : ''}
         ${renderMarkdownPreview(item.data.content || '')}
       </article>
     `;
@@ -281,6 +388,8 @@ async function runSelectedLocalActions() {
 
   const latestInbox = outputs.find((item) => item.ok && item.data.recentInbox)?.data.recentInbox;
   if (latestInbox) await refreshInbox(latestInbox);
+  await loadArtifacts();
+  await loadCapabilities();
   runSelectedActionsBtn.textContent = '生成勾选动作';
   updateSelectedActions();
 }
@@ -288,6 +397,14 @@ async function runSelectedLocalActions() {
 function selectedNotebookActionLabels() {
   return getCheckedValues(notebookActions).map((action) => actionLabels[action] || action);
 }
+
+
+document.addEventListener('click', async (event) => {
+  const copyBtn = event.target.closest('.copy-btn[data-copy-path]');
+  if (!copyBtn) return;
+  await navigator.clipboard?.writeText(copyBtn.dataset.copyPath);
+  copyBtn.textContent = '已复制';
+});
 
 for (const card of document.querySelectorAll('[data-route]')) {
   card.addEventListener('click', () => showView(card.dataset.route));
@@ -308,6 +425,13 @@ refreshInboxBtn.addEventListener('click', () => refreshInbox());
 openVaultBtn.addEventListener('click', () => openVaultPath('').catch((error) => showResult(`失败：${error.message}`)));
 openVaultFromHomeBtn.addEventListener('click', () => openVaultPath('').catch((error) => { health.textContent = `打开失败：${error.message}`; health.className = 'status-dot offline'; }));
 refreshNotebookLmBtn.addEventListener('click', () => checkNotebookLmStatus());
+copyAgentPromptBtn?.addEventListener('click', async () => {
+  await navigator.clipboard?.writeText(agentPromptBox.textContent || '');
+  copyAgentPromptBtn.textContent = '已复制';
+  setTimeout(() => { copyAgentPromptBtn.textContent = '复制提示词'; }, 1400);
+});
+refreshCapabilitiesBtn?.addEventListener('click', () => loadCapabilities());
+refreshArtifactsBtn?.addEventListener('click', () => loadArtifacts());
 connectNotebookLmBtn.addEventListener('click', async () => {
   notebookActionResult.textContent = '正在打开 NotebookLM 登录...';
   try {
@@ -317,6 +441,36 @@ connectNotebookLmBtn.addEventListener('click', async () => {
     notebookActionResult.textContent = `连接失败：${error.message}`;
   }
 });
+
+captureNotebookPasteBtn?.addEventListener('click', async () => {
+  const content = notebookCaptureText.value.trim();
+  if (!content) {
+    notebookActionResult.textContent = '请先粘贴 NotebookLM 输出内容。';
+    return;
+  }
+  captureNotebookPasteBtn.disabled = true;
+  captureNotebookPasteBtn.textContent = '正在写入...';
+  notebookActionResult.textContent = '正在捕捉 NotebookLM 输出并写入 Obsidian inbox...';
+  try {
+    const data = await notebookLmAction('capture-paste', {
+      title: notebookCaptureTitle.value || `NotebookLM Capture - ${notebookOutputType.value}`,
+      outputType: notebookOutputType.value,
+      notebookLink: notebookLink.value,
+      content,
+    });
+    notebookActionResult.innerHTML = `<strong>${escapeHtml(data.title)}</strong><p>${escapeHtml(data.artifactPath || '')}</p>${data.obsidianUri ? `<a href="${escapeHtml(data.obsidianUri)}">在 Obsidian 打开</a>` : ''}`;
+    notebookCaptureText.value = '';
+    await refreshInbox(data.recentInbox);
+    await loadArtifacts();
+    await loadCapabilities();
+  } catch (error) {
+    notebookActionResult.textContent = `捕捉失败：${error.message}`;
+  } finally {
+    captureNotebookPasteBtn.disabled = false;
+    captureNotebookPasteBtn.textContent = '捕捉并写入 Obsidian';
+  }
+});
+
 writeNotebookDemoBtn.addEventListener('click', async () => {
   const actions = selectedNotebookActionLabels();
   const title = `NotebookLM Demo Digest - ${actions.join(', ') || 'Summary'}`;
@@ -325,6 +479,8 @@ writeNotebookDemoBtn.addEventListener('click', async () => {
     const data = await notebookLmAction('write-sample-digest', { title, notebookLink: notebookLink.value, requestedOutputs: actions });
     notebookActionResult.innerHTML = `<strong>${escapeHtml(data.title)}</strong><p>${escapeHtml(data.artifactPath || '')}</p>${data.obsidianUri ? `<a href="${escapeHtml(data.obsidianUri)}">在 Obsidian 打开</a>` : ''}`;
     await refreshInbox(data.recentInbox);
+    await loadArtifacts();
+    await loadCapabilities();
   } catch (error) {
     notebookActionResult.textContent = `写入失败：${error.message}`;
   }
@@ -339,6 +495,25 @@ inboxList.addEventListener('click', async (event) => {
     } catch (error) {
       showResult(`失败：${error.message}`);
     }
+  }
+});
+
+
+artifactRegistry?.addEventListener('click', async (event) => {
+  const previewBtn = event.target.closest('[data-preview]');
+  if (previewBtn) {
+    try { await previewNote(previewBtn.dataset.preview); } catch (error) { showResult(`失败：${error.message}`); }
+    return;
+  }
+  const obsidianBtn = event.target.closest('[data-open-obsidian]');
+  if (obsidianBtn) {
+    try { await openObsidian(obsidianBtn.dataset.openObsidian); } catch (error) { health.textContent = `Obsidian 打开失败：${error.message}`; health.className = 'status-dot offline'; }
+    return;
+  }
+  const copyBtn = event.target.closest('[data-copy-path]');
+  if (copyBtn) {
+    await navigator.clipboard?.writeText(copyBtn.dataset.copyPath);
+    copyBtn.textContent = '已复制';
   }
 });
 
@@ -359,3 +534,6 @@ dropzone.addEventListener('drop', (event) => upload(event.dataTransfer.files[0])
 updateSelectedActions();
 await checkHealth();
 await refreshInbox();
+await loadCapabilities();
+await loadArtifacts();
+await loadAgentPrompt();

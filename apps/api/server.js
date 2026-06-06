@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawn, execFile } from 'node:child_process';
 import Busboy from 'busboy';
@@ -13,9 +14,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '../..');
 const publicDir = path.join(root, 'apps', 'web');
 const uploadDir = path.join(root, '.uploads');
+const artifactDir = path.join(DEFAULT_VAULT_PATH, '.knowledge-forge');
+const artifactLogPath = path.join(artifactDir, 'artifacts.jsonl');
 const port = Number(process.env.PORT || 4177);
 
 await fsp.mkdir(uploadDir, { recursive: true });
+await fsp.mkdir(artifactDir, { recursive: true });
 
 function sendJson(res, status, payload) {
   const body = JSON.stringify(payload, null, 2);
@@ -43,6 +47,132 @@ function safeVaultPath(relativePath = '') {
 
 function toVaultRelative(fullPath) {
   return path.relative(DEFAULT_VAULT_PATH, fullPath).replaceAll('\\', '/');
+}
+
+
+async function readKnowledgeForgeConfig() {
+  const candidates = [
+    path.join(root, 'knowledge-forge.config.json'),
+    path.join(root, 'knowledge-forge.config.example.json'),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(await fsp.readFile(candidate, 'utf8'));
+    } catch {}
+  }
+  return {
+    features: { localForge: true, finalExamReview: true, obsidian: true, notebooklm: true },
+    agent: { assumed: true, recommendedSetup: 'full' },
+  };
+}
+
+function getObsidianExecutableCandidates(config = {}) {
+  return [
+    config.obsidian?.executablePath,
+    process.env.OBSIDIAN_EXECUTABLE,
+    path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Obsidian', 'Obsidian.exe'),
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Obsidian', 'Obsidian.exe'),
+    'D:\\11\\Obsidian\\Obsidian.exe',
+  ].filter(Boolean);
+}
+
+async function findExistingPath(candidates = []) {
+  for (const candidate of candidates) {
+    try {
+      await fsp.access(candidate);
+      return candidate;
+    } catch {}
+  }
+  return null;
+}
+
+async function getObsidianStatus() {
+  const config = await readKnowledgeForgeConfig();
+  const vaultExists = await fsp.stat(DEFAULT_VAULT_PATH).then((stat) => stat.isDirectory()).catch(() => false);
+  const executablePath = await findExistingPath(getObsidianExecutableCandidates(config));
+  return {
+    enabled: config.features?.obsidian !== false,
+    vaultPath: DEFAULT_VAULT_PATH,
+    vaultExists,
+    executablePath,
+    protocolUri: makeObsidianOpenUri(DEFAULT_VAULT_PATH),
+    fallbacks: ['protocol', 'executable', 'folder', 'copy-path'],
+  };
+}
+
+function appendJsonl(filePath, payload) {
+  return fsp.appendFile(filePath, JSON.stringify(payload) + '\n', 'utf8');
+}
+
+async function recordArtifact(payload) {
+  await fsp.mkdir(artifactDir, { recursive: true });
+  const record = {
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    status: 'draft',
+    reviewRequired: true,
+    vaultPath: DEFAULT_VAULT_PATH,
+    ...payload,
+  };
+  await appendJsonl(artifactLogPath, record);
+  return record;
+}
+
+async function listArtifacts(limit = 40) {
+  let raw = '';
+  try { raw = await fsp.readFile(artifactLogPath, 'utf8'); } catch { return []; }
+  return raw.split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      try { return JSON.parse(line); } catch { return null; }
+    })
+    .filter(Boolean)
+    .reverse()
+    .slice(0, limit);
+}
+
+async function getCapabilities() {
+  const config = await readKnowledgeForgeConfig();
+  const notebook = await runNotebookLmAuthCheck();
+  const obsidian = await getObsidianStatus();
+  return [
+    {
+      id: 'local-forge',
+      label: 'Local Forge',
+      status: 'ready',
+      enabled: config.features?.localForge !== false,
+      recommended: true,
+      description: '本地资料摄入与草稿生成，不需要 Google 登录。',
+      actions: ['upload', 'summary', 'study-guide', 'quiz', 'flashcards'],
+    },
+    {
+      id: 'final-exam-review',
+      label: 'Final Exam Review',
+      status: config.features?.finalExamReview === false ? 'disabled' : 'ready',
+      enabled: config.features?.finalExamReview !== false,
+      recommended: true,
+      description: '期末复习增强：复习计划、考点整理、闪卡、测验。',
+      skillRepo: 'https://github.com/577206/final-exam-review-skill',
+    },
+    {
+      id: 'obsidian',
+      label: 'Obsidian Bridge',
+      status: obsidian.vaultExists ? 'ready' : 'needs_config',
+      enabled: obsidian.enabled,
+      recommended: true,
+      description: '把生成结果写入 Obsidian / Markdown vault。',
+      details: obsidian,
+    },
+    {
+      id: 'notebooklm',
+      label: 'NotebookLM Bridge',
+      status: notebook.connected ? 'ready' : notebook.installed ? 'needs_login' : 'needs_install',
+      enabled: config.features?.notebooklm !== false,
+      recommended: true,
+      description: '连接 Google NotebookLM 做深度阅读，推荐手动模式优先。',
+      details: notebook,
+    },
+  ];
 }
 
 async function listInbox(limit = 30) {
@@ -104,11 +234,35 @@ function makeObsidianOpenUri(targetPath) {
   return `obsidian://open?path=${encodeURIComponent(targetPath)}`;
 }
 
-function openObsidianPath(targetPath) {
+async function openObsidianPath(targetPath, preferredMethod = 'protocol') {
+  const config = await readKnowledgeForgeConfig();
   const uri = makeObsidianOpenUri(targetPath);
-  const child = spawn('explorer.exe', [uri], { detached: true, stdio: 'ignore' });
-  child.unref();
-  return uri;
+  const executablePath = await findExistingPath(getObsidianExecutableCandidates(config));
+
+  if (preferredMethod === 'folder') {
+    openLocalPath(targetPath);
+    return { method: 'folder', opened: targetPath };
+  }
+
+  if (preferredMethod === 'executable' && executablePath) {
+    const child = spawn(executablePath, [targetPath], { detached: true, stdio: 'ignore' });
+    child.unref();
+    return { method: 'executable', opened: targetPath, executablePath };
+  }
+
+  try {
+    const child = spawn('explorer.exe', [uri], { detached: true, stdio: 'ignore' });
+    child.unref();
+    return { method: 'protocol', opened: targetPath, obsidianUri: uri, executablePath };
+  } catch {
+    if (executablePath) {
+      const child = spawn(executablePath, [targetPath], { detached: true, stdio: 'ignore' });
+      child.unref();
+      return { method: 'executable', opened: targetPath, obsidianUri: uri, executablePath };
+    }
+    openLocalPath(targetPath);
+    return { method: 'folder', opened: targetPath, obsidianUri: uri };
+  }
 }
 
 async function readJsonBody(req) {
@@ -232,6 +386,29 @@ function runNotebookLmAuthCheck() {
   });
 }
 
+
+function getAgentQuickStartPrompt() {
+  return [
+    '请帮我安装和配置 Knowledge Forge。',
+    '',
+    '这是一个 Agent-first 的本地知识摄入与学习工作台，推荐 Full Setup：',
+    '- Local Forge 本地资料整理',
+    '- Final Exam Review 期末复习增强',
+    '- Obsidian Bridge 长期知识库写入',
+    '- NotebookLM Bridge 深度阅读桥接',
+    '',
+    '请先阅读仓库里的 AGENTS.md、FEATURES.md、SETUP.md，然后：',
+    '1. 先运行 scripts/doctor.ps1 检查环境。',
+    '2. 推荐执行 scripts/setup.ps1 -Full。',
+    '3. 生成/确认 .env.local 和 knowledge-forge.config.json。',
+    '4. 启动 scripts/start.ps1。',
+    '5. 运行 scripts/verify.ps1 和 scripts/test-plan.ps1。',
+    '6. 告诉我哪些能力已经可用，哪些还需要我手动登录或配置。',
+    '',
+    '安全要求：不要询问或保存我的 Google 密码；不要提交 .env.local、cookies、NotebookLM storage_state.json 或私人资料。',
+  ].join('\n');
+}
+
 function getNotebookLmActions(connected = false) {
   return [
     { id: 'auth-check', label: '检查登录状态', available: true, output: 'status' },
@@ -249,6 +426,7 @@ function getLocalForgeActions() {
     { id: 'study-guide', label: '生成学习指南', description: '生成学习目标、重点概念、复习路径。', available: true, output: 'markdown' },
     { id: 'quiz', label: '生成测验题', description: '生成选择题/简答题草稿。', available: true, output: 'markdown' },
     { id: 'flashcards', label: '生成闪卡', description: '生成 Q/A 卡片，可后续导出 Anki。', available: true, output: 'markdown' },
+    { id: 'final-exam-review', label: '期末复习包', description: '生成复习计划、考点清单、速记卡和临考行动表。', available: true, output: 'markdown', skillRepo: 'https://github.com/577206/final-exam-review-skill' },
     { id: 'pdf', label: '导出 PDF', description: 'PDF 渲染器尚未接入，演示版先返回 501。', available: false, reason: 'PDF renderer not wired yet', output: 'pdf' },
   ];
 }
@@ -294,6 +472,49 @@ function buildLocalForgeArtifact(action, note) {
   const bullets = extractBullets(summary || content, 8);
   const headings = extractHeadings(content, 10);
   const keywords = extractKeywordsFromNote(content, 12);
+
+  if (action === 'final-exam-review') {
+    const coreItems = (keywords.length ? keywords : headings).slice(0, 12);
+    const questionStems = (headings.length ? headings : keywords).slice(0, 8);
+    return {
+      title: `Final Exam Review - ${title}`,
+      content: [
+        `# Final Exam Review - ${title}`,
+        '',
+        '> 生成方式：agent-assisted local draft；参考 final-exam-review-skill 工作流。请结合课程大纲、考试时间和往年题继续复核。',
+        '',
+        '## 1. 复习优先级',
+        ...(coreItems.length ? coreItems.slice(0, 8).map((item, index) => `- P${index < 3 ? 0 : index < 6 ? 1 : 2}：${item}`) : ['- P0：先补充课程大纲和考试范围。']),
+        '',
+        '## 2. 三轮复习计划',
+        '### 第一轮：建图（理解）',
+        '- 通读资料，按章节/主题建立知识地图。',
+        '- 标记不懂概念，优先补 P0 项。',
+        '### 第二轮：刷题（应用）',
+        '- 用 Quiz/Flashcards 检查概念是否能主动回忆。',
+        '- 把错题回链到原始笔记。',
+        '### 第三轮：冲刺（输出）',
+        '- 只看公式/定义/易错点/高频题型。',
+        '- 用 30 分钟模拟讲解整门课。',
+        '',
+        '## 3. 考点清单',
+        ...(questionStems.length ? questionStems.map((item) => `- [ ] ${item}`) : ['- [ ] 待从课程大纲补充']),
+        '',
+        '## 4. 临考速记卡',
+        ...(coreItems.slice(0, 8).map((item) => `- **${item}**：定义 / 公式 / 例题 / 易错点（待补充）`)),
+        '',
+        '## 5. 模拟自测题',
+        ...(questionStems.slice(0, 6).map((item, index) => `${index + 1}. 请用自己的话解释「${item}」，并说明它可能如何出题。`)),
+        '',
+        '## 6. 需要你补充给 Agent 的信息',
+        '- [ ] 课程名称',
+        '- [ ] 考试时间',
+        '- [ ] 课程大纲 / lecture list',
+        '- [ ] 往年题 / 样题',
+        '- [ ] 老师强调过的重点',
+      ].join('\n'),
+    };
+  }
 
   if (action === 'pdf') {
     const error = new Error('PDF export is not wired in this demo build.');
@@ -385,7 +606,7 @@ function buildLocalForgeArtifact(action, note) {
   throw error;
 }
 
-async function writeInboxArtifact(title, content) {
+async function writeInboxArtifact(title, content, meta = {}) {
   const inboxDir = safeVaultPath('inbox');
   await fsp.mkdir(inboxDir, { recursive: true });
   const safeTitle = title.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 90) || 'Knowledge Forge Artifact';
@@ -393,10 +614,19 @@ async function writeInboxArtifact(title, content) {
   const fullPath = path.join(inboxDir, fileName);
   const body = `---\ntitle: ${JSON.stringify(title)}\ntype: generated-artifact\nstatus: inbox\ncreated: ${new Date().toISOString()}\ngenerator: knowledge-forge-local\n---\n\n${content}\n`;
   await fsp.writeFile(fullPath, body, 'utf8');
-  return {
-    artifactPath: toVaultRelative(fullPath),
+  const artifactPath = toVaultRelative(fullPath);
+  const artifactRecord = await recordArtifact({
+    title,
+    artifactPath,
     fullPath,
     obsidianUri: makeObsidianOpenUri(fullPath),
+    ...meta,
+  });
+  return {
+    artifactPath,
+    fullPath,
+    obsidianUri: makeObsidianOpenUri(fullPath),
+    artifactRecord,
   };
 }
 
@@ -408,7 +638,13 @@ async function handleLocalForgeGenerate(req, res) {
     if (!body.notePath) return sendJson(res, 400, { ok: false, error: 'Missing notePath' });
     const note = await readVaultNote(body.notePath);
     const artifact = buildLocalForgeArtifact(action, note);
-    const writeResult = body.writeToInbox === false ? null : await writeInboxArtifact(artifact.title, artifact.content);
+    const writeResult = body.writeToInbox === false ? null : await writeInboxArtifact(artifact.title, artifact.content, {
+      capability: 'local-forge',
+      action,
+      engine: 'local-rules',
+      sourceNotePath: note.path,
+      sourceTitle: note.title,
+    });
     return sendJson(res, 200, {
       ok: true,
       action,
@@ -416,6 +652,7 @@ async function handleLocalForgeGenerate(req, res) {
       format: 'markdown',
       content: artifact.content,
       artifactPath: writeResult?.artifactPath,
+      artifactRecord: writeResult?.artifactRecord,
       obsidianUri: writeResult?.obsidianUri,
       recentInbox: await listInbox(20),
     });
@@ -460,11 +697,54 @@ async function handleNotebookLmAction(req, res) {
         '- [ ] Verify important claims against the original sources.',
         '- [ ] Promote reviewed notes out of inbox.',
       ].join('\n');
-      const writeResult = await writeInboxArtifact(title, content);
+      const writeResult = await writeInboxArtifact(title, content, {
+        capability: 'notebooklm',
+        action: 'write-sample-digest',
+        engine: 'notebooklm-manual-placeholder',
+        notebookLink: body.notebookLink || null,
+        requestedOutputs: body.requestedOutputs || [],
+      });
       return sendJson(res, 200, { ok: true, action, status: 'completed', title, format: 'markdown', content, ...writeResult, recentInbox: await listInbox(20) });
     }
 
-    return sendJson(res, 501, { ok: false, action, error: 'This NotebookLM action is declared for the UI but not wired in the demo backend yet.', implementedActions: ['auth-check', 'open-login', 'write-sample-digest'] });
+    if (action === 'capture-paste') {
+      const pasted = String(body.content || '').trim();
+      if (!pasted) return sendJson(res, 400, { ok: false, error: 'Missing NotebookLM pasted content' });
+      const outputType = String(body.outputType || 'digest').trim();
+      const title = String(body.title || `NotebookLM Capture - ${outputType}`).trim().slice(0, 120);
+      const notebookLink = body.notebookLink || null;
+      const content = [
+        `# ${title}`,
+        '',
+        '## Capture metadata',
+        '- Source: NotebookLM manual capture',
+        `- Output type: ${outputType}`,
+        `- Notebook link: ${notebookLink || 'not provided'}`,
+        `- Captured at: ${new Date().toISOString()}`,
+        '- Review required: true',
+        '',
+        '## NotebookLM output',
+        '',
+        pasted,
+        '',
+        '## Agent review checklist',
+        '',
+        '- [ ] 核对重要事实是否能在原始 source 中找到。',
+        '- [ ] 把关键概念改成 Obsidian 双链。',
+        '- [ ] 标记不确定点和后续问题。',
+        '- [ ] 复核后再从 inbox 晋升到正式知识库。',
+      ].join('\n');
+      const writeResult = await writeInboxArtifact(title, content, {
+        capability: 'notebooklm',
+        action: 'capture-paste',
+        engine: 'notebooklm-manual-capture',
+        notebookLink,
+        outputType,
+      });
+      return sendJson(res, 200, { ok: true, action, status: 'completed', title, outputType, format: 'markdown', content, ...writeResult, recentInbox: await listInbox(20) });
+    }
+
+    return sendJson(res, 501, { ok: false, action, error: 'This NotebookLM action is declared for the UI but not wired in the demo backend yet.', implementedActions: ['auth-check', 'open-login', 'write-sample-digest', 'capture-paste'] });
   } catch (error) {
     return sendJson(res, 500, { ok: false, error: error.message });
   }
@@ -525,19 +805,48 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 400, { error: error.message });
     }
   }
+  if (req.method === 'GET' && url.pathname === '/api/obsidian/status') {
+    try {
+      return sendJson(res, 200, { ok: true, ...(await getObsidianStatus()) });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error.message });
+    }
+  }
   if (req.method === 'POST' && url.pathname === '/api/obsidian/open') {
     try {
       const body = await readJsonBody(req);
       const target = body.path ? safeVaultPath(body.path) : DEFAULT_VAULT_PATH;
-      const obsidianUri = openObsidianPath(target);
+      const opened = await openObsidianPath(target, body.method || 'protocol');
       return sendJson(res, 200, {
         ok: true,
-        opened: body.path || DEFAULT_VAULT_PATH,
         vaultPath: DEFAULT_VAULT_PATH,
-        obsidianUri,
+        ...opened,
       });
     } catch (error) {
-      return sendJson(res, 400, { error: error.message });
+      return sendJson(res, 400, { ok: false, error: error.message });
+    }
+  }
+  if (req.method === 'GET' && url.pathname === '/api/agent/quick-start') {
+    return sendJson(res, 200, {
+      ok: true,
+      recommendedSetup: 'full',
+      repoUrl: 'https://github.com/577206/knowledge-forge',
+      prompt: getAgentQuickStartPrompt(),
+    });
+  }
+  if (req.method === 'GET' && url.pathname === '/api/capabilities') {
+    try {
+      return sendJson(res, 200, { ok: true, recommendedSetup: 'full', capabilities: await getCapabilities() });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error.message });
+    }
+  }
+  if (req.method === 'GET' && url.pathname === '/api/artifacts') {
+    try {
+      const limit = Number(url.searchParams.get('limit') || 40);
+      return sendJson(res, 200, { ok: true, artifacts: await listArtifacts(limit) });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error.message });
     }
   }
   if (req.method === 'GET' && url.pathname === '/api/local-forge/actions') {

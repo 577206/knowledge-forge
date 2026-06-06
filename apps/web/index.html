@@ -41,6 +41,7 @@
             <li>Summary Digest 摘要笔记</li>
             <li>Study Guide 学习讲义</li>
             <li>Quiz / Flashcards 练习材料</li>
+            <li>Final Exam Review 期末复习包</li>
             <li>Report / PDF 输出入口</li>
           </ul>
           <button class="route-btn" type="button">进入本地锻造</button>
@@ -61,6 +62,48 @@
         </article>
       </section>
 
+
+
+      <section class="control-dashboard" id="controlDashboard">
+        <article class="panel dark-panel">
+          <div class="panel-title light-title">
+            <div>
+              <h3>Capability Center 能力中心</h3>
+              <span>推荐全功能安装；也支持后续补配能力</span>
+            </div>
+            <button id="refreshCapabilitiesBtn" class="small-btn" type="button">刷新</button>
+          </div>
+          <div id="capabilityCenter" class="capability-grid">
+            <p class="muted-light">正在加载能力状态...</p>
+          </div>
+        </article>
+
+        <article class="panel dark-panel">
+          <div class="panel-title light-title">
+            <div>
+              <h3>Artifacts 生成记录</h3>
+              <span>每次生成都记录来源、引擎、保存位置</span>
+            </div>
+            <button id="refreshArtifactsBtn" class="small-btn" type="button">刷新</button>
+          </div>
+          <div id="artifactRegistry" class="artifact-registry">
+            <p class="muted-light">还没有生成记录。</p>
+          </div>
+        </article>
+
+        <article class="panel dark-panel agent-prompt-panel">
+          <div class="panel-title light-title">
+            <div>
+              <h3>Agent Quick Start</h3>
+              <span>复制给 Claude Code / OpenClaw / Cursor / Codex，自动开始 Full Setup</span>
+            </div>
+            <button id="copyAgentPromptBtn" class="small-btn" type="button">复制提示词</button>
+          </div>
+          <pre id="agentPromptBox" class="agent-prompt-box">正在加载 Agent 启动提示词...</pre>
+        </article>
+
+      </section>
+
       <section class="flow-view" id="localView" hidden>
         <button class="back-btn" data-back type="button">← 返回路径选择</button>
 
@@ -78,6 +121,7 @@
           <label><input type="checkbox" value="study-guide" checked /> Study Guide</label>
           <label><input type="checkbox" value="quiz" /> Quiz</label>
           <label><input type="checkbox" value="flashcards" /> Flashcards</label>
+          <label><input type="checkbox" value="final-exam-review" /> Final Exam Review</label>
           <label><input type="checkbox" value="pdf" /> PDF</label>
         </div>
 
@@ -138,6 +182,22 @@
 
         <div id="notebookLmStatus" class="bridge-status muted">等待检查...</div>
 
+        <div class="manual-workflow panel">
+          <div class="panel-title">
+            <div>
+              <h3>NotebookLM 手动模式推荐流程</h3>
+              <span>稳定优先：Google 页面由用户自己操作，Knowledge Forge 负责捕捉与沉淀</span>
+            </div>
+          </div>
+          <div class="workflow-steps">
+            <article><strong>1. 打开 NotebookLM</strong><p>点击连接按钮或访问 notebooklm.google.com，用普通 Chrome 完成登录。</p></article>
+            <article><strong>2. 上传资料 / 创建 Notebook</strong><p>用户在 NotebookLM 里手动上传 PDF、网页或课程资料，避免自动化登录风险。</p></article>
+            <article><strong>3. 生成输出</strong><p>在 NotebookLM 里生成 Summary、Study Guide、FAQ、Quiz、Audio Overview 等。</p></article>
+            <article><strong>4. 回到 Knowledge Forge</strong><p>粘贴 notebook/source 链接或结果文本，后续由 Python bridge 捕捉并写入 Obsidian。</p></article>
+          </div>
+        </div>
+
+
         <div class="notebook-demo-grid">
           <article class="panel">
             <h3>1. 选择输出动作</h3>
@@ -156,8 +216,31 @@
             <button id="writeNotebookDemoBtn" class="route-btn dark full" type="button">写入示例 Digest 到 Inbox</button>
           </article>
 
+          <article class="panel capture-panel">
+            <h3>2. 粘贴 NotebookLM 输出</h3>
+            <p class="muted">在 NotebookLM 生成 Summary / Study Guide / FAQ / Flashcards 后，复制结果粘贴到这里，一键写入 Obsidian inbox。</p>
+            <div class="notebook-link-box">
+              <label for="notebookCaptureTitle">Artifact 标题</label>
+              <input id="notebookCaptureTitle" type="text" placeholder="例如：Transformer Study Guide - NotebookLM" />
+            </div>
+            <div class="notebook-link-box">
+              <label for="notebookOutputType">输出类型</label>
+              <select id="notebookOutputType">
+                <option value="summary">Summary</option>
+                <option value="study-guide">Study Guide</option>
+                <option value="faq">FAQ</option>
+                <option value="flashcards">Flashcards</option>
+                <option value="quiz">Quiz</option>
+                <option value="briefing-doc">Briefing Doc</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <textarea id="notebookCaptureText" rows="11" placeholder="把 NotebookLM 生成的内容粘贴到这里..."></textarea>
+            <button id="captureNotebookPasteBtn" class="route-btn dark full" type="button">捕捉并写入 Obsidian</button>
+          </article>
+
           <article class="panel">
-            <h3>2. 工作流预览</h3>
+            <h3>3. 工作流预览</h3>
             <ol class="flow-list">
               <li>检查 notebooklm-py 与 Google 登录态。</li>
               <li>选择或创建 NotebookLM notebook。</li>

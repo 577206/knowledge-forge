@@ -1,0 +1,61 @@
+{
+  "version": "0.2.0",
+  "features": {
+    "localForge": true,
+    "finalExamReview": true,
+    "obsidian": true,
+    "notebooklm": true
+  },
+  "agent": {
+    "assumed": true,
+    "recommendedSetup": "full",
+    "supportedAgents": [
+      "Claude Code",
+      "OpenClaw",
+      "Cursor",
+      "Codex",
+      "Qwen Code",
+      "Gemini CLI"
+    ],
+    "setupGuide": "AGENTS.md"
+  },
+  "localForge": {
+    "enabledParsers": ["pdf", "markdown", "txt", "excel", "csv"],
+    "actions": ["summary", "study-guide", "quiz", "flashcards"],
+    "engineLabel": "local-rules",
+    "reviewRequired": true
+  },
+  "finalExamReview": {
+    "enabled": true,
+    "skillRepo": "https://github.com/577206/final-exam-review-skill",
+    "actions": [
+      "exam-plan",
+      "knowledge-map",
+      "formula-sheet",
+      "last-minute-review",
+      "mock-quiz",
+      "flashcards"
+    ]
+  },
+  "obsidian": {
+    "enabled": true,
+    "vaultPath": "",
+    "executablePath": "",
+    "defaultInbox": "inbox",
+    "openFallbacks": ["protocol", "executable", "folder", "copy-path"]
+  },
+  "notebooklm": {
+    "enabled": true,
+    "mode": "manual-first",
+    "profile": "default",
+    "pythonVenv": ".venv-notebooklm",
+    "authStoragePolicy": "local-only-never-commit"
+  },
+  "artifacts": {
+    "enabled": true,
+    "registryPath": ".knowledge-forge/artifacts.jsonl",
+    "defaultStatus": "draft",
+    "recordEngine": true,
+    "recordReviewRequired": true
+  }
+}
