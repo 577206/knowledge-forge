@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import Busboy from 'busboy';
 import { ingestFile, indexVault, buildVaultGraph } from '../../packages/ingestion-core/index.js';
 import { DEFAULT_VAULT_PATH } from '../../packages/ingestion-core/config.js';
@@ -189,6 +189,49 @@ function handleUpload(req, res) {
   req.pipe(busboy);
 }
 
+function runNotebookLmAuthCheck() {
+  const notebookLmExe = path.join(root, '.venv-notebooklm', 'Scripts', 'notebooklm.exe');
+  return new Promise((resolve) => {
+    fs.access(notebookLmExe, fs.constants.X_OK, (accessError) => {
+      if (accessError) {
+        resolve({
+          installed: false,
+          connected: false,
+          status: 'missing',
+          message: 'notebooklm-py is not installed. Run the setup commands in README.md.',
+        });
+        return;
+      }
+
+      execFile(notebookLmExe, ['auth', 'check', '--test', '--json'], { cwd: root, timeout: 30000 }, (error, stdout) => {
+        try {
+          const data = JSON.parse(stdout || '{}');
+          const connected = data.status === 'ok' && data.checks?.token_fetch === true;
+          resolve({
+            installed: true,
+            connected,
+            status: connected ? 'connected' : 'needs_login',
+            message: connected ? 'NotebookLM is connected.' : 'NotebookLM login is required or expired.',
+            checks: {
+              storage_exists: Boolean(data.checks?.storage_exists),
+              json_valid: Boolean(data.checks?.json_valid),
+              cookies_present: Boolean(data.checks?.cookies_present),
+              token_fetch: data.checks?.token_fetch === true,
+            },
+          });
+        } catch {
+          resolve({
+            installed: true,
+            connected: false,
+            status: 'error',
+            message: error?.message || 'Failed to parse notebooklm auth check output.',
+          });
+        }
+      });
+    });
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (req.method === 'GET' && url.pathname === '/api/health') {
@@ -258,6 +301,18 @@ const server = http.createServer(async (req, res) => {
     } catch (error) {
       return sendJson(res, 400, { error: error.message });
     }
+  }
+  if (req.method === 'GET' && url.pathname === '/api/notebooklm/status') {
+    const status = await runNotebookLmAuthCheck();
+    return sendJson(res, 200, {
+      ok: true,
+      ...status,
+      safety: {
+        unofficial: true,
+        authStorage: 'local file only; never expose cookies or storage_state.json',
+        writesRequireConfirmation: true,
+      },
+    });
   }
   if (req.method === 'POST' && url.pathname === '/api/ingest') {
     return handleUpload(req, res);

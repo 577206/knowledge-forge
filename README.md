@@ -1,25 +1,123 @@
 # Knowledge Forge
 
-> 把散乱资料炼成可复用知识：一个面向 Obsidian / Markdown 知识库的本地资料摄入工作台。
+> Local-first second-brain workbench for Obsidian, NotebookLM and Markdown knowledge vaults.  
+> 把散乱资料炼成可复用知识：上传、解析、复核、进入 Obsidian，并可选接入 NotebookLM 生成摘要、测验、闪卡、报告/PDF 等学习材料。
 
-Knowledge Forge 是一个本地优先的知识库直通车。它把 PDF、Markdown、TXT、Excel/CSV 等文件摄入后，解析为 Obsidian 友好的 Markdown 笔记，并写入指定 vault 的 `inbox/`。当前版本刻意不做完全自动归档和强 Agent 决策，而是先建立一个安全、可控、可上手的最小闭环：**上传 → 解析 → 写入 inbox → 页面预览 → 打开 Obsidian**。
+Knowledge Forge 不是又一个“文件上传器”。它想解决的是一个更真实的问题：
 
-## 创作意图
+```text
+资料很多 → AI 问完就散了 → 笔记没有长期结构 → 下次还是从零开始
+```
 
-我想做的不是一个普通“文件上传器”，而是一个未来可以进化成个人知识操作系统的入口：
+Knowledge Forge 给你一条本地优先的第二大脑工作流：
 
-- 把 PDF、文章、笔记、表格这些散乱信息，统一送进 Markdown/Obsidian 知识库。
-- 先进入 `inbox`，避免自动化流程污染正式知识结构。
-- 对资料做最小程度的结构化：摘要、关键词、候选概念、候选双链、Excel 字段映射。
-- 让使用者先能“看见、打开、复核、整理”，再逐步引入 Agent 自动归纳。
+```text
+PDF / 网页 / 课件 / Excel / Markdown
+→ Knowledge Forge 本地摄入与预处理
+→ Obsidian / Markdown vault inbox
+→ NotebookLM 可选阅读、问答、测验、闪卡、报告/PDF
+→ Agent / 人类复核
+→ 长期知识库
+```
 
 核心原则：
 
+> AI 和规则系统负责提出结构化建议，长期知识结构必须由人确认。
+
+---
+
+## 为什么需要它
+
+很多知识管理工具的问题不是“不够智能”，而是没有形成闭环：
+
+- PDF 下载了，但没人整理。
+- NotebookLM 问过了，但答案留在会话里。
+- Obsidian 很强，但资料进入成本高。
+- AI 能总结，但直接写进长期知识库很危险。
+- Excel、课程资料、论文、网页、项目文档彼此割裂。
+
+Knowledge Forge 的定位是：
+
 ```text
-AI/规则系统负责提出结构化建议，知识库最终结构由人确认。
+本地资料入口 + Obsidian inbox + NotebookLM Bridge + 可复核的知识生成工作台
 ```
 
-这也是为什么当前版本没有直接做全自动归档。知识库是人的第二大脑，不能让自动化在没有复核的情况下随意改动长期结构。
+---
+
+## 核心能力
+
+### 1. Local Ingestion：本地资料摄入
+
+支持上传：
+
+```text
+.pdf
+.md / .markdown
+.txt
+.xlsx / .xls
+.csv
+```
+
+输出：
+
+- Obsidian 友好的 Markdown 笔记
+- frontmatter
+- 摘要、关键词、候选标签
+- 概念候选
+- 双链候选
+- Excel sheet / 字段 / 类型 / 样例值 / 目标字段映射
+- manifest，方便未来审计和回滚
+
+默认只写入：
+
+```text
+<your-vault>/inbox/
+```
+
+避免自动化污染长期知识结构。
+
+---
+
+### 2. Review Workspace：复核工作台
+
+本地页面：
+
+```text
+http://localhost:4177
+```
+
+可以：
+
+- 拖拽上传文件
+- 查看本次导入结果
+- 预览 Markdown
+- 查看 Excel 字段映射
+- 查看 Obsidian inbox 最近笔记
+- 打开 Obsidian 笔记
+- 打开 vault 文件夹
+- 查看知识图谱 Graph View
+
+---
+
+### 3. NotebookLM Bridge：可选增强
+
+NotebookLM Bridge 是可选能力，不影响基础上传功能。
+
+连接 NotebookLM 后，可以把资料进一步生成：
+
+- Summary Digest：摘要笔记
+- Study Guide：学习讲义
+- Quiz：测验题
+- Flashcards：闪卡
+- Mind Map：思维导图
+- Report / PDF：报告或 PDF
+- Audio Overview：音频概览
+
+当前页面已经提供 NotebookLM 连接状态入口；完整生成动作会逐步接入。
+
+> 注意：`notebooklm-py` 是非官方社区项目，使用 NotebookLM 的非公开接口。适合个人研究和学习自动化，不适合存储他人 Google 登录态或做未经授权的 SaaS。
+
+---
 
 ## 5 分钟上手
 
@@ -29,7 +127,13 @@ AI/规则系统负责提出结构化建议，知识库最终结构由人确认�
 start.bat
 ```
 
-第一次运行会让你配置 `.env.local`：
+第一次运行会引导你配置：
+
+```text
+.env.local
+```
+
+内容示例：
 
 ```text
 KF_VAULT_PATH=D:\Your\Obsidian\Vault
@@ -41,166 +145,22 @@ KF_VAULT_PATH=D:\Your\Obsidian\Vault
 http://localhost:4177
 ```
 
-把 PDF / Markdown / TXT / Excel / CSV 拖进去，生成的 Markdown 笔记会进入：
+把 PDF / Markdown / TXT / Excel / CSV 拖进去，生成的 Markdown 会进入：
 
 ```text
 <your-vault>/inbox/
 ```
 
+---
+
 ### 命令行启动
-
-```powershell
-npm install
-npm run dev
-```
-
-详细说明见：
-
-- [`docs/QUICKSTART.md`](docs/QUICKSTART.md)：Knowledge Forge 最短上手
-- [`docs/SETUP_SECOND_BRAIN_WORKFLOW.md`](docs/SETUP_SECOND_BRAIN_WORKFLOW.md)：从零搭建 NotebookLM × Obsidian × Knowledge Forge 第二大脑工作流
-- [`docs/NOTEBOOKLM_OBSIDIAN_WORKFLOW.md`](docs/NOTEBOOKLM_OBSIDIAN_WORKFLOW.md)：NotebookLM 工作流设计说明
-
-## 当前能力
-
-- 本地 Web 页面：`http://localhost:4177`
-- 支持上传：`.pdf` / `.md` / `.txt` / `.xlsx` / `.xls` / `.csv`
-- 写入 Obsidian vault 的 `inbox/`
-- 页面右侧展示最近 inbox 笔记
-- 支持在页面中预览 Markdown
-- 支持通过 `obsidian://open` 打开笔记
-- 支持打开本地 vault 文件夹 / 笔记所在位置
-- 每次摄入生成 manifest，便于后续审计和回滚能力扩展
-- Excel 自动识别：sheet、表头、行列数、业务类型、字段类型、样例值、目标字段映射
-- PDF 优先尝试 `@opendocsg/pdf2md` 转 Markdown，失败则生成占位笔记
-
-## 技术逻辑
-
-### 总体链路
-
-```text
-浏览器前端
-  ↓ multipart upload
-Node HTTP API
-  ↓ 保存临时上传文件
-Ingestion Core
-  ├─ Text/Markdown parser
-  ├─ PDF parser/fallback
-  └─ Spreadsheet parser
-      ↓
-规则版分析器
-  ├─ 摘要/关键词/标签候选
-  ├─ 概念候选
-  ├─ 双链候选
-  └─ Excel 字段映射
-      ↓
-Markdown Note Generator
-      ↓
-Obsidian Vault inbox/
-      ↓
-Web Review / Inbox Preview
-```
-
-### 模块说明
-
-```text
-apps/api/server.js
-```
-
-本地 HTTP 服务，负责：
-
-- 静态前端页面
-- 文件上传接口 `/api/ingest`
-- vault 健康检查 `/api/health`
-- inbox 列表 `/api/vault/inbox`
-- 读取笔记 `/api/vault/note`
-- 打开本地路径 `/api/vault/open`
-
-```text
-apps/web/
-```
-
-原生 HTML/CSS/JS 前端，负责：
-
-- 拖拽/选择文件上传
-- 展示本次导入结果
-- 展示摘要、frontmatter、Markdown 预览
-- 展示 Excel 字段映射
-- 展示 vault inbox 最近笔记
-- 打开 Obsidian / 文件夹 / 页面预览
-
-```text
-packages/ingestion-core/
-```
-
-摄入核心逻辑，负责：
-
-- 根据扩展名选择 parser
-- 文档摘要、关键词、候选标签
-- 概念候选抽取
-- vault 双链候选匹配
-- Excel 表格字段识别和目标字段映射
-- 生成 Obsidian 风格 Markdown
-- 写入 vault 和 manifest
-
-## 项目结构
-
-```text
-Knowledge-Forge/
-  apps/
-    api/
-      server.js          # 本地 HTTP API + 静态文件服务
-    web/
-      index.html         # 前端页面
-      app.js             # 前端交互逻辑
-      styles.css         # 页面样式
-  packages/
-    ingestion-core/
-      config.js          # vault 路径和支持格式
-      index.js           # parser / analyzer / note generator
-  docs/
-    WORKFLOW.md          # 完整工作流搭建与使用流程
-    2026-06-04-dev-log.md
-  test-fixtures/
-    karpathy-test.md
-    payroll-test.xlsx
-  package.json
-  README.md
-```
-
-## 快速开始
-
-### 1. 安装依赖
 
 ```powershell
 git clone https://github.com/577206/knowledge-forge.git
 cd knowledge-forge
+copy .env.example .env.local
+notepad .env.local
 npm install
-```
-
-### 2. 配置你的 Obsidian Vault 路径
-
-默认 vault 路径是开发者本机路径：
-
-```text
-E:\创作工坊\知识库\LLM-Wiki
-```
-
-推荐通过环境变量覆盖：
-
-```powershell
-$env:KF_VAULT_PATH="D:\Your\Obsidian\Vault"
-npm run dev
-```
-
-也可以直接修改：
-
-```text
-packages/ingestion-core/config.js
-```
-
-### 3. 启动服务
-
-```powershell
 npm run dev
 ```
 
@@ -210,90 +170,366 @@ npm run dev
 http://localhost:4177
 ```
 
-### 4. 使用最小闭环
+---
 
-1. 把 PDF / Markdown / TXT / Excel 拖到页面中。
-2. 等待处理完成。
-3. 查看“本次导入”。
-4. 在右侧“知识库 Inbox”看到新笔记。
-5. 点击：
-   - `Obsidian`：打开对应 Obsidian 笔记
-   - `文件夹`：打开本地文件位置
-   - `预览`：在网页内查看 Markdown
+## 从零搭建完整第二大脑工作流
+
+如果你是完全新用户，按这个顺序来：
+
+### 1. 安装 Node.js
+
+```text
+https://nodejs.org/
+```
+
+检查：
+
+```powershell
+node -v
+npm -v
+```
+
+### 2. 安装 Python
+
+```text
+https://www.python.org/downloads/
+```
+
+检查：
+
+```powershell
+python --version
+```
+
+### 3. 安装 Obsidian
+
+```text
+https://obsidian.md/download
+```
+
+新建一个 vault，例如：
+
+```text
+D:\MyKnowledgeVault
+```
+
+建议建立：
+
+```text
+D:\MyKnowledgeVault\inbox
+```
+
+### 4. 配置 Knowledge Forge
+
+```powershell
+copy .env.example .env.local
+notepad .env.local
+```
+
+写入：
+
+```text
+KF_VAULT_PATH=D:\MyKnowledgeVault
+```
+
+### 5. 启动并上传资料
+
+```powershell
+npm install
+npm run dev
+```
+
+打开：
+
+```text
+http://localhost:4177
+```
+
+拖入一个 `.md` / `.txt` / `.pdf` / Excel 文件。确认 inbox 里出现笔记。
+
+到这里，基础工作流已跑通。
+
+---
+
+## 可选：配置 NotebookLM Bridge
+
+如果你想让 NotebookLM 帮你阅读资料、生成摘要/测验/闪卡/报告，就继续。
+
+### 1. 安装 notebooklm-py
+
+```powershell
+python -m venv .venv-notebooklm
+.\.venv-notebooklm\Scripts\python.exe -m pip install -U pip
+.\.venv-notebooklm\Scripts\python.exe -m pip install "notebooklm-py[browser]"
+```
+
+检查：
+
+```powershell
+.\.venv-notebooklm\Scripts\notebooklm.exe --version
+```
+
+### 2. 登录 NotebookLM
+
+推荐使用系统 Chrome：
+
+```powershell
+.\.venv-notebooklm\Scripts\notebooklm.exe login --browser chrome --fresh
+```
+
+登录完成后检查：
+
+```powershell
+.\check-notebooklm.bat
+```
+
+有效登录必须满足：
+
+```json
+{
+  "status": "ok",
+  "checks": {
+    "token_fetch": true
+  }
+}
+```
+
+### 3. 在页面检查连接
+
+启动 Knowledge Forge 后，首页会显示：
+
+```text
+NotebookLM Bridge
+```
+
+点击：
+
+```text
+检查连接
+```
+
+如果显示“已连接”，说明 NotebookLM Bridge 可以被 Skill / Agent 工作流调用。
+
+---
+
+## NotebookLM MVP 示例
+
+创建测试 notebook：
+
+```powershell
+.\.venv-notebooklm\Scripts\notebooklm.exe create "Knowledge Forge Test" --json
+```
+
+添加公开网页：
+
+```powershell
+.\.venv-notebooklm\Scripts\notebooklm.exe source add -n <notebook_id> "https://en.wikipedia.org/wiki/Knowledge_management" --json
+```
+
+提问：
+
+```powershell
+.\.venv-notebooklm\Scripts\notebooklm.exe ask -n <notebook_id> "Summarize the core idea in 5 bullet points for an Obsidian note." --json
+```
+
+把结果整理成 Markdown，先放入：
+
+```text
+<your-vault>/inbox/
+```
+
+---
+
+## 推荐 Vault 结构
+
+```text
+MyKnowledgeVault/
+├─ inbox/                # 新资料和 AI 草稿先进这里
+├─ 10_Schoolwork/        # 课程、作业、考试
+├─ 20_Research/          # 论文、科研线索
+├─ 30_Reading/           # 书、文章、网页
+├─ 40_Projects/          # 项目资料、交付、复盘
+├─ 50_Knowledge/         # 长期知识卡片
+├─ 80_Assets/            # 图片、PDF、附件
+├─ 90_Archive/           # 归档
+└─ Templates/            # 模板
+```
+
+---
+
+## 内置 Skills
+
+项目内置两个 Skill：
+
+```text
+skills/knowledge-forge/SKILL.md
+skills/notebooklm-obsidian-second-brain/SKILL.md
+```
+
+推荐使用一站式入口：
+
+```text
+skills/knowledge-forge/SKILL.md
+```
+
+它包含：
+
+- Local Ingestion 模式
+- NotebookLM Bridge 模式
+- 输出动作选择：summary / quiz / flashcards / mind-map / report/PDF / audio
+- Obsidian 写回规范
+- 安全边界
+- MVP 验收标准
+
+---
+
+## 安全模型
+
+Knowledge Forge 默认坚持：
+
+```text
+local-first
+inbox-first
+human-review-first
+```
+
+不要公开或提交：
+
+```text
+.env
+.env.local
+.notebooklm/
+storage_state.json
+NOTEBOOKLM_AUTH_JSON
+Google Cookie
+真实私人课程资料
+未授权论文 / 教材 / 内部文件
+```
+
+可以公开：
+
+```text
+Vault 文件夹结构
+模板
+脱敏示例笔记
+使用方法
+工作流总结
+```
+
+如果误传登录态或密钥，第一步不是只删文件，而是立刻撤销/轮换。
+
+---
+
+## 技术架构
+
+```text
+Browser UI
+  ↓ multipart upload
+Node HTTP API
+  ↓
+Ingestion Core
+  ├─ Text / Markdown parser
+  ├─ PDF parser / fallback
+  └─ Spreadsheet parser
+      ↓
+Rules-based analyzer
+  ├─ summary / keywords / tags
+  ├─ concept candidates
+  ├─ backlink candidates
+  └─ Excel field mapping
+      ↓
+Markdown Note Generator
+      ↓
+Obsidian vault inbox
+      ↓
+Review Workspace / Graph View
+      ↓ optional
+NotebookLM Bridge
+  ├─ source add
+  ├─ ask
+  ├─ quiz / flashcards / report / audio
+  └─ write back to inbox
+```
+
+---
+
+## 项目结构
+
+```text
+Knowledge-Forge/
+  apps/
+    api/server.js
+    web/index.html
+    web/app.js
+    web/graph.js
+    web/styles.css
+  packages/
+    ingestion-core/config.js
+    ingestion-core/index.js
+  docs/
+    QUICKSTART.md
+    SETUP_SECOND_BRAIN_WORKFLOW.md
+    NOTEBOOKLM_OBSIDIAN_WORKFLOW.md
+    NOTEBOOKLM_MVP_RUN_2026-06-06.md
+  skills/
+    knowledge-forge/SKILL.md
+    notebooklm-obsidian-second-brain/SKILL.md
+  test-fixtures/
+  start.bat
+  check-notebooklm.bat
+  package.json
+```
+
+---
 
 ## 常用命令
 
 ```powershell
 npm run dev      # 启动本地服务
 npm run check    # Node 语法检查
+npm test         # 测试图谱控制逻辑
 ```
 
-测试 fixture：
+NotebookLM 检查：
 
 ```powershell
-node test-fixtures\ingest-fixtures.mjs
+.\check-notebooklm.bat
 ```
 
-## API 简表
+---
 
-### `GET /api/health`
+## Roadmap
 
-查看服务和 vault 状态。
+### v0.1 Local Ingestion
 
-### `POST /api/ingest`
+- 文件上传
+- Markdown 生成
+- Obsidian inbox
+- Review 页面
+- Graph View
 
-上传文件并写入 vault inbox。
+### v0.2 NotebookLM Bridge
 
-### `GET /api/vault/inbox?limit=30`
+- 连接状态检查
+- notebook/source 管理
+- 摘要、测验、闪卡、报告/PDF 输出选择
+- 写回 Obsidian inbox
 
-读取最近 inbox 笔记。
+### v0.3 Review Queue
 
-### `GET /api/vault/note?path=inbox/xxx.md`
+- 批量复核
+- 接受/拒绝候选双链
+- Promote from inbox
+- 回滚 manifest
 
-读取 vault 内某篇 Markdown 笔记。
+### v0.4 Skill Ecosystem
 
-### `POST /api/vault/open`
+- OpenClaw / Claude Code Skill
+- 学生学习工作流
+- 科研工作流
+- 企业知识库工作流
 
-打开 vault 或 vault 内文件所在位置。
-
-Body 示例：
-
-```json
-{
-  "path": "inbox/2026-06-04 - example.md"
-}
-```
-
-## 安全边界
-
-当前版本默认只写入 vault 的 `inbox/`，不会自动移动到正式目录。
-
-代码里也做了 vault path 限制：读取/打开笔记时只能访问配置的 vault 目录内部，避免路径穿越。
-
-不会提交：
-
-- `node_modules/`
-- `.uploads/`
-- 本地 vault 内容
-- token / `.env`
-- 运行时缓存
-
-## 当前限制
-
-- PDF 解析是轻量方案，复杂版式和扫描件可能只能生成占位笔记。
-- 摘要和关键词是规则版，不是深度 LLM 理解。
-- 双链候选是轻量 token 匹配，还不是 BM25/向量检索。
-- 当前版本没有 Agent 自动归档。
-- 当前版本没有完整 rollback UI，只有 manifest 基础。
-
-## 未来路线
-
-1. `preview -> confirm write` 两阶段导入。
-2. Markdown 在线编辑并保存回 vault。
-3. BM25 + embedding 双链推荐。
-4. DeepSeek / 本地 LLM provider adapter。
-5. Agent Orchestrator：自动提出整理计划，但由人确认。
-6. Excel DataObject 正式化：工资、药品库存、流水、审计、回滚。
+---
 
 ## License
 

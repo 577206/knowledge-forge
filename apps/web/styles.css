@@ -1007,3 +1007,82 @@ th {
     width: 100%;
   }
 }
+
+/* NotebookLM Bridge */
+.bridge-card {
+  margin-bottom: 18px;
+  border-color: rgba(79, 70, 229, 0.18);
+  background: linear-gradient(135deg, #ffffff 0%, #f7f5ff 100%);
+}
+
+.bridge-card .panel-title {
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.bridge-card .panel-title p {
+  max-width: 760px;
+  margin: 6px 0 0;
+}
+
+.bridge-status {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 13px;
+}
+
+.bridge-status strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.bridge-status small {
+  color: var(--muted);
+}
+
+.bridge-status.connected {
+  border-color: rgba(47, 179, 68, 0.28);
+  background: #f0fff4;
+}
+
+.bridge-status.warning {
+  border-color: rgba(255, 159, 10, 0.32);
+  background: #fff8eb;
+}
+
+.bridge-status.error {
+  border-color: rgba(220, 38, 38, 0.25);
+  background: #fff5f5;
+}
+
+.bridge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.output-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 1px solid #d8d6ff;
+  border-radius: 999px;
+  color: #3730a3;
+  background: #f3f1ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.bridge-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+

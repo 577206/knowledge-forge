@@ -27,6 +27,26 @@
         <button id="refreshInboxBtn" class="ghost-btn">刷新 Inbox</button>
       </section>
 
+      <section class="card bridge-card" data-view-section="ingest">
+        <div class="panel-title">
+          <div>
+            <h2>NotebookLM Bridge</h2>
+            <p class="muted">可选增强：连接 NotebookLM 后，可把资料生成摘要、测验、闪卡、报告/PDF 等，再写回 Obsidian inbox。</p>
+          </div>
+          <button id="refreshNotebookLmBtn" class="ghost-btn">检查连接</button>
+        </div>
+        <div id="notebookLmStatus" class="bridge-status muted">等待检查...</div>
+        <div class="bridge-actions">
+          <span class="output-chip">Summary Digest</span>
+          <span class="output-chip">Quiz</span>
+          <span class="output-chip">Flashcards</span>
+          <span class="output-chip">Mind Map</span>
+          <span class="output-chip">Report / PDF</span>
+          <span class="output-chip">Audio Overview</span>
+        </div>
+        <p class="bridge-note">当前版本先提供连接状态与工作流入口；生成动作需要用户确认后再调用 notebooklm-py，避免上传私人资料或暴露 Google 登录态。</p>
+      </section>
+
       <section class="card upload-card" data-view-section="ingest">
         <div id="dropzone" class="dropzone">
           <div class="drop-icon">⇪</div>

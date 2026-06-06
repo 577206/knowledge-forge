@@ -11,6 +11,8 @@ const inboxCount = document.getElementById('inboxCount');
 const openObsidianBtn = document.getElementById('openObsidianBtn');
 const openVaultBtn = document.getElementById('openVaultBtn');
 const refreshInboxBtn = document.getElementById('refreshInboxBtn');
+const refreshNotebookLmBtn = document.getElementById('refreshNotebookLmBtn');
+const notebookLmStatus = document.getElementById('notebookLmStatus');
 
 let latestVaultPath = '';
 
@@ -22,6 +24,31 @@ async function checkHealth() {
     health.textContent = `服务在线 · ${data.vaultPath}`;
   } catch (error) {
     health.textContent = `服务异常：${error.message}`;
+  }
+}
+
+async function checkNotebookLmStatus() {
+  if (!notebookLmStatus) return;
+  notebookLmStatus.textContent = '正在检查 NotebookLM 连接...';
+  try {
+    const res = await fetch('/api/notebooklm/status');
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'NotebookLM status check failed');
+    const label = data.connected ? '已连接' : data.installed ? '需要登录' : '未安装';
+    const next = data.connected
+      ? '可以在 Skill/Agent 工作流中选择摘要、测验、闪卡、报告/PDF 等输出。'
+      : data.installed
+        ? '请运行 .\\.venv-notebooklm\\Scripts\\notebooklm.exe login --browser chrome --fresh 后重新检查。'
+        : '请按 README 安装 notebooklm-py。';
+    notebookLmStatus.className = `bridge-status ${data.connected ? 'connected' : data.installed ? 'warning' : 'error'}`;
+    notebookLmStatus.innerHTML = `
+      <strong>${escapeHtml(label)}</strong>
+      <span>${escapeHtml(data.message || '')}</span>
+      <small>${escapeHtml(next)}</small>
+    `;
+  } catch (error) {
+    notebookLmStatus.className = 'bridge-status error';
+    notebookLmStatus.textContent = `NotebookLM 检查失败：${error.message}`;
   }
 }
 
@@ -235,6 +262,7 @@ openObsidianBtn.addEventListener('click', async () => {
 });
 openVaultBtn.addEventListener('click', () => openVaultPath(''));
 refreshInboxBtn.addEventListener('click', () => refreshInbox());
+if (refreshNotebookLmBtn) refreshNotebookLmBtn.addEventListener('click', () => checkNotebookLmStatus());
 
 summary.addEventListener('click', async (event) => {
   const button = event.target.closest('[data-open-current]');
@@ -267,4 +295,5 @@ for (const eventName of ['dragleave', 'drop']) {
 dropzone.addEventListener('drop', (event) => upload(event.dataTransfer.files[0]));
 
 await checkHealth();
+await checkNotebookLmStatus();
 await refreshInbox();
