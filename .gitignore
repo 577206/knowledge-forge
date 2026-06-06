@@ -20,3 +20,12 @@ coverage/
 # Editor
 .vscode/
 .idea/
+
+# NotebookLM auth/session files
+.notebooklm/
+**/storage_state.json
+NOTEBOOKLM_AUTH_JSON*
+
+# Project-local NotebookLM Python environment
+.venv-notebooklm/
+
