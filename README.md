@@ -54,7 +54,11 @@ npm install
 npm run dev
 ```
 
-详细说明见：[`docs/QUICKSTART.md`](docs/QUICKSTART.md)
+详细说明见：
+
+- [`docs/QUICKSTART.md`](docs/QUICKSTART.md)：Knowledge Forge 最短上手
+- [`docs/SETUP_SECOND_BRAIN_WORKFLOW.md`](docs/SETUP_SECOND_BRAIN_WORKFLOW.md)：从零搭建 NotebookLM × Obsidian × Knowledge Forge 第二大脑工作流
+- [`docs/NOTEBOOKLM_OBSIDIAN_WORKFLOW.md`](docs/NOTEBOOKLM_OBSIDIAN_WORKFLOW.md)：NotebookLM 工作流设计说明
 
 ## 当前能力
 
