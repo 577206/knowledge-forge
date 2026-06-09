@@ -4,10 +4,10 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, execFile } from 'node:child_process';
 import Busboy from 'busboy';
-import { ingestFile, indexVault, buildVaultGraph } from '../../packages/ingestion-core/index.js';
+import { ingestFile, stageFile, approveStaged, rejectStaged, indexVault, buildVaultGraph } from '../../packages/ingestion-core/index.js';
 import { DEFAULT_VAULT_PATH } from '../../packages/ingestion-core/config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,9 +17,12 @@ const uploadDir = path.join(root, '.uploads');
 const artifactDir = path.join(DEFAULT_VAULT_PATH, '.knowledge-forge');
 const artifactLogPath = path.join(artifactDir, 'artifacts.jsonl');
 const port = Number(process.env.PORT || 4177);
+const openclawAgentId = process.env.KF_OPENCLAW_AGENT || 'main';
+const pdfDir = path.join(DEFAULT_VAULT_PATH, '.knowledge-forge', 'pdf');
 
 await fsp.mkdir(uploadDir, { recursive: true });
 await fsp.mkdir(artifactDir, { recursive: true });
+await fsp.mkdir(pdfDir, { recursive: true });
 
 function sendJson(res, status, payload) {
   const body = JSON.stringify(payload, null, 2);
@@ -133,7 +136,6 @@ async function listArtifacts(limit = 40) {
 
 async function getCapabilities() {
   const config = await readKnowledgeForgeConfig();
-  const notebook = await runNotebookLmAuthCheck();
   const obsidian = await getObsidianStatus();
   return [
     {
@@ -142,8 +144,8 @@ async function getCapabilities() {
       status: 'ready',
       enabled: config.features?.localForge !== false,
       recommended: true,
-      description: '本地资料摄入与草稿生成，不需要 Google 登录。',
-      actions: ['upload', 'summary', 'study-guide', 'quiz', 'flashcards'],
+      description: '本地资料摄入与 fallback 草稿生成，不需要 Google 登录；正式深度生成请使用本机 Agent。',
+      actions: ['upload', 'summary:fallback', 'study-guide:fallback', 'quiz:fallback', 'flashcards:fallback'],
     },
     {
       id: 'final-exam-review',
@@ -151,7 +153,7 @@ async function getCapabilities() {
       status: config.features?.finalExamReview === false ? 'disabled' : 'ready',
       enabled: config.features?.finalExamReview !== false,
       recommended: true,
-      description: '期末复习增强：复习计划、考点整理、闪卡、测验。',
+      description: '正式 Agent 任务执行内核：通过 Claude Code / OpenClaw / Codex 生成复习计划、考点整理、闪卡、测验；MCP Server 是后续增强形态。',
       skillRepo: 'https://github.com/577206/final-exam-review-skill',
     },
     {
@@ -166,11 +168,11 @@ async function getCapabilities() {
     {
       id: 'notebooklm',
       label: 'NotebookLM Bridge',
-      status: notebook.connected ? 'ready' : notebook.installed ? 'needs_login' : 'needs_install',
-      enabled: config.features?.notebooklm !== false,
-      recommended: true,
-      description: '连接 Google NotebookLM 做深度阅读，推荐手动模式优先。',
-      details: notebook,
+      status: 'disabled',
+      enabled: false,
+      recommended: false,
+      description: '正在测试中，即将上线。当前发布版先关闭 NotebookLM 入口，避免登录态和隐私边界不稳定。',
+      details: { message: 'Testing in progress. Coming soon.' },
     },
   ];
 }
@@ -200,7 +202,7 @@ async function listInbox(limit = 30) {
         path: toVaultRelative(full),
         modifiedAt: stat.mtime.toISOString(),
         size: stat.size,
-        obsidianUri: `obsidian://open?path=${encodeURIComponent(full)}`,
+        obsidianUri: makeObsidianOpenUri(full),
       };
     }));
   return files.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt)).slice(0, limit);
@@ -217,7 +219,7 @@ async function readVaultNote(relativePath) {
     modifiedAt: stat.mtime.toISOString(),
     size: stat.size,
     content,
-    obsidianUri: `obsidian://open?path=${encodeURIComponent(full)}`,
+    obsidianUri: makeObsidianOpenUri(full),
   };
 }
 
@@ -226,42 +228,68 @@ function openLocalPath(targetPath) {
   child.unref();
 }
 
+function openLocalFile(targetPath) {
+  const child = spawn('cmd.exe', ['/c', 'start', '', targetPath], { detached: true, stdio: 'ignore', windowsHide: true });
+  child.unref();
+}
+
+function revealLocalPath(targetPath) {
+  const child = spawn('explorer.exe', ['/select,', targetPath], { detached: true, stdio: 'ignore' });
+  child.unref();
+}
+
 function toPortablePath(targetPath) {
   return String(targetPath || '').replaceAll('\\', '/');
 }
 
 function makeObsidianOpenUri(targetPath) {
-  return `obsidian://open?path=${encodeURIComponent(targetPath)}`;
+  const vaultName = path.basename(DEFAULT_VAULT_PATH);
+  const fullPath = path.resolve(String(targetPath || DEFAULT_VAULT_PATH));
+  const vaultRoot = path.resolve(DEFAULT_VAULT_PATH);
+  if (fullPath === vaultRoot) {
+    return `obsidian://open?vault=${encodeURIComponent(vaultName)}`;
+  }
+  if (fullPath.startsWith(vaultRoot + path.sep)) {
+    const relative = path.relative(vaultRoot, fullPath).replaceAll('\\', '/');
+    // Obsidian's Windows protocol handler is much more reliable with vault+file
+    // than with a raw absolute path, especially for Chinese paths and running apps.
+    return `obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(relative)}`;
+  }
+  return `obsidian://open?path=${encodeURIComponent(fullPath)}`;
 }
 
 async function openObsidianPath(targetPath, preferredMethod = 'protocol') {
   const config = await readKnowledgeForgeConfig();
-  const uri = makeObsidianOpenUri(targetPath);
+  const fullTargetPath = path.resolve(String(targetPath || DEFAULT_VAULT_PATH));
+  const uri = makeObsidianOpenUri(fullTargetPath);
   const executablePath = await findExistingPath(getObsidianExecutableCandidates(config));
+  const targetDir = await fsp.stat(fullTargetPath).then((stat) => stat.isDirectory() ? fullTargetPath : path.dirname(fullTargetPath)).catch(() => DEFAULT_VAULT_PATH);
 
   if (preferredMethod === 'folder') {
-    openLocalPath(targetPath);
-    return { method: 'folder', opened: targetPath };
+    openLocalPath(targetDir);
+    return { method: 'folder', opened: targetDir, requestedPath: fullTargetPath };
   }
 
   if (preferredMethod === 'executable' && executablePath) {
-    const child = spawn(executablePath, [targetPath], { detached: true, stdio: 'ignore' });
+    // Obsidian's CLI reliably opens the vault; the UI can then follow the protocol URI.
+    const child = spawn(executablePath, [DEFAULT_VAULT_PATH], { detached: true, stdio: 'ignore' });
     child.unref();
-    return { method: 'executable', opened: targetPath, executablePath };
+    spawn('explorer.exe', [uri], { detached: true, stdio: 'ignore' }).unref();
+    return { method: 'executable+protocol', opened: fullTargetPath, executablePath, obsidianUri: uri };
   }
 
   try {
     const child = spawn('explorer.exe', [uri], { detached: true, stdio: 'ignore' });
     child.unref();
-    return { method: 'protocol', opened: targetPath, obsidianUri: uri, executablePath };
+    return { method: 'protocol', opened: fullTargetPath, obsidianUri: uri, executablePath };
   } catch {
     if (executablePath) {
-      const child = spawn(executablePath, [targetPath], { detached: true, stdio: 'ignore' });
+      const child = spawn(executablePath, [DEFAULT_VAULT_PATH], { detached: true, stdio: 'ignore' });
       child.unref();
-      return { method: 'executable', opened: targetPath, obsidianUri: uri, executablePath };
+      return { method: 'executable', opened: DEFAULT_VAULT_PATH, requestedPath: fullTargetPath, obsidianUri: uri, executablePath };
     }
-    openLocalPath(targetPath);
-    return { method: 'folder', opened: targetPath, obsidianUri: uri };
+    openLocalPath(targetDir);
+    return { method: 'folder', opened: targetDir, requestedPath: fullTargetPath, obsidianUri: uri };
   }
 }
 
@@ -270,6 +298,448 @@ async function readJsonBody(req) {
   for await (const chunk of req) chunks.push(chunk);
   if (!chunks.length) return {};
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+function safeAgentPackPath(packDir = '') {
+  const rootDir = path.resolve(DEFAULT_VAULT_PATH, '.knowledge-forge', 'agent-packs');
+  const full = path.resolve(String(packDir || ''));
+  if (full !== rootDir && !full.startsWith(rootDir + path.sep)) {
+    throw new Error('Agent pack path is outside Knowledge Forge agent-packs');
+  }
+  return full;
+}
+
+function resolveLocalAgentCommand(command) {
+  if (process.platform !== 'win32') return { command, argsPrefix: [] };
+  const npmDir = path.join(os.homedir(), 'AppData', 'Roaming', 'npm');
+  if (command === 'claude') {
+    const direct = path.join(npmDir, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe');
+    if (fs.existsSync(direct)) return { command: direct, argsPrefix: [] };
+  }
+  if (command === 'openclaw') {
+    const mjs = path.join(npmDir, 'node_modules', 'openclaw', 'openclaw.mjs');
+    if (fs.existsSync(mjs)) return { command: process.execPath, argsPrefix: [mjs] };
+  }
+  if (command === 'codex') {
+    const cmd = path.join(npmDir, 'codex.cmd');
+    if (fs.existsSync(cmd)) return { command: 'cmd.exe', argsPrefix: ['/c', cmd] };
+    const ps1 = path.join(npmDir, 'codex.ps1');
+    if (fs.existsSync(ps1)) return { command: 'powershell.exe', argsPrefix: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1] };
+  }
+  return { command, argsPrefix: [] };
+}
+
+function normalizeAgentEngine(engine = 'claude') {
+  const normalized = String(engine || 'claude').toLowerCase();
+  if (['claude', 'codex', 'openclaw'].includes(normalized)) return normalized;
+  const error = new Error(`Unsupported agent engine: ${engine}`);
+  error.statusCode = 400;
+  throw error;
+}
+
+function makeFinalExamReviewPrompt({ packDir = '', task = '', manifests = [], mode = 'single' } = {}) {
+  if (mode === 'batch') {
+    return [
+      'You are the local computer Agent inside Knowledge Forge.',
+      'The user uploaded multiple source files and selected FUSE mode.',
+      'Your job is to read all source packs and create ONE integrated review artifact.',
+      '',
+      'Source packs:',
+      ...manifests.map((item, index) => `${index + 1}. ${item.manifest.title} - ${item.packDir}`),
+      '',
+      'Read for every pack:',
+      '- manifest.json',
+      '- AGENT_TASK.md',
+      '- every Markdown file under chunks/',
+      '',
+      'Important requirements:',
+      '- Output ONLY the final Markdown artifact. Do not describe your process.',
+      '- Fuse overlapping concepts across files instead of repeating separate summaries.',
+      '- Cite source title and chunk ids for important claims, for example: (Lecture 2 / chunk-003).',
+      '- If sources conflict, create a "Conflicts / needs review" section.',
+      '- If something is unclear, write NEEDS_SOURCE_REVIEW instead of inventing.',
+      '- Follow final-exam-review style: integrated summary, knowledge map, P0/P1/P2 points, Feynman explanations, common mistakes, plan, mock questions, flashcards.',
+    ].join('\n');
+  }
+  return [
+    'You are the local computer Agent inside Knowledge Forge.',
+    'Your job is to read the uploaded source pack and generate a useful study/review artifact.',
+    '',
+    `Pack directory: ${packDir}`,
+    '',
+    'Read these files from the pack directory:',
+    '- manifest.json',
+    '- AGENT_TASK.md',
+    '- every Markdown file under chunks/',
+    '',
+    'Important requirements:',
+    '- Output ONLY the final Markdown artifact. Do not describe your process.',
+    '- Cite chunk ids for important claims, for example: (chunk-003).',
+    '- If something is unclear, write NEEDS_SOURCE_REVIEW instead of inventing.',
+    '- Follow the final-exam-review style: summary, knowledge map, P0/P1/P2 points, Feynman explanations, mistakes, plan, mock questions, flashcards.',
+    '- If the source is a data table, explain fields and risks first; never invent formulas.',
+    '',
+    'AGENT_TASK.md:',
+    task,
+  ].join('\n');
+}
+
+function buildAgentPrompt({ customPrompt, taskPrompt, defaultPrompt }) {
+  const selected = [customPrompt, taskPrompt, defaultPrompt]
+    .map((part) => String(part || '').trim())
+    .find(Boolean) || defaultPrompt;
+  return [
+    selected,
+    'Formatting rule for math: if the output contains formulas, write them in standard LaTeX math syntax. Use inline `$...$` for inline math and block `$$...$$` for displayed equations. Do not use screenshots, Unicode-only approximations, or pseudo-formulas when LaTeX is appropriate.',
+  ].join('\n\n');
+}
+
+async function buildPackInlineContext(packDir, maxChars = 40000) {
+  const manifestPath = path.join(packDir, 'manifest.json');
+  const taskPath = path.join(packDir, 'AGENT_TASK.md');
+  const chunksDir = path.join(packDir, 'chunks');
+  const parts = [];
+  try { parts.push(`# manifest.json\n\n${await fsp.readFile(manifestPath, 'utf8')}`); } catch {}
+  try { parts.push(`# AGENT_TASK.md\n\n${await fsp.readFile(taskPath, 'utf8')}`); } catch {}
+  let entries = [];
+  try { entries = await fsp.readdir(chunksDir, { withFileTypes: true }); } catch {}
+  for (const entry of entries.filter((item) => item.isFile() && item.name.endsWith('.md')).sort((a, b) => a.name.localeCompare(b.name))) {
+    const full = path.join(chunksDir, entry.name);
+    let content = '';
+    try { content = await fsp.readFile(full, 'utf8'); } catch { continue; }
+    parts.push(`# chunks/${entry.name}\n\n${content}`);
+    if (parts.join('\n\n').length > maxChars) {
+      parts.push(`\n\n> TRUNCATED: source pack exceeded ${maxChars} characters. Ask user to split or use Claude/Codex if more detail is needed.`);
+      break;
+    }
+  }
+  return parts.join('\n\n---\n\n').slice(0, maxChars);
+}
+
+async function runCodexExec({ cwd, prompt, timeout = 15 * 60 * 1000 }) {
+  const tmpFile = path.join(os.tmpdir(), `knowledge-forge-codex-${Date.now()}-${crypto.randomUUID()}.md`);
+  // Use stdin (`-`) instead of passing the prompt as a command-line argument.
+  // On Windows, long/multiline/Chinese prompts can be truncated by cmd.exe argument parsing.
+  const args = ['exec', '--skip-git-repo-check', '-C', cwd, '--sandbox', 'read-only', '--output-last-message', tmpFile, '-'];
+  const resolved = resolveLocalAgentCommand('codex');
+  const commandLine = `${resolved.command} ${[...resolved.argsPrefix, ...args].map((arg) => JSON.stringify(arg)).join(' ')} < prompt`;
+  try {
+    const { stdout, stderr } = await spawnText('codex', args, { cwd, timeout, input: prompt });
+    const fileOutput = await fsp.readFile(tmpFile, 'utf8').catch(() => '');
+    return { stdout: fileOutput || stdout, stderr, commandLine };
+  } finally {
+    await fsp.rm(tmpFile, { force: true }).catch(() => {});
+  }
+}
+
+function spawnText(command, args, options = {}) {
+  const resolved = resolveLocalAgentCommand(command);
+  const timeout = options.timeout || 10 * 60 * 1000;
+  return new Promise((resolve, reject) => {
+    const child = spawn(resolved.command, [...resolved.argsPrefix, ...args], {
+      cwd: options.cwd,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      const error = new Error(`${command} timed out after ${timeout}ms`);
+      error.stdout = stdout;
+      error.stderr = stderr;
+      reject(error);
+    }, timeout);
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      error.stdout = stdout;
+      error.stderr = stderr;
+      reject(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        const error = new Error(`${command} exited with code ${code}`);
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+    if (options.input) child.stdin.end(options.input);
+    else child.stdin.end();
+  });
+}
+
+function execFileText(command, args, options = {}) {
+  const resolved = resolveLocalAgentCommand(command);
+  return new Promise((resolve, reject) => {
+    execFile(resolved.command, [...resolved.argsPrefix, ...args], {
+      timeout: 10 * 60 * 1000,
+      maxBuffer: 20 * 1024 * 1024,
+      windowsHide: true,
+      ...options,
+    }, (error, stdout, stderr) => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') });
+    });
+  });
+}
+
+function extractAgentOutput(engine, stdout) {
+  const text = String(stdout || '').trim();
+  if (!text) return '';
+  if (engine === 'openclaw') {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed.payloads)) {
+        const payloadText = parsed.payloads
+          .map((payload) => payload?.text || payload?.message || '')
+          .filter(Boolean)
+          .join('\n\n')
+          .trim();
+        if (payloadText) return payloadText;
+      }
+      return parsed.reply || parsed.message || parsed.text || parsed.output || parsed.finalAssistantVisibleText || text;
+    } catch {
+      return text;
+    }
+  }
+  if (engine === 'claude') {
+    try {
+      const parsed = JSON.parse(text);
+      return parsed.result || parsed.message || parsed.response || parsed.text || text;
+    } catch {
+      return text;
+    }
+  }
+  return text;
+}
+
+function makeOpenClawSessionId(seed = 'run') {
+  return `knowledge-forge-${slugifyForSession(seed)}-${Date.now()}`.slice(0, 120);
+}
+
+function slugifyForSession(input = 'task') {
+  return String(input || 'task')
+    .replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'task';
+}
+
+async function runComputerAgentOnPack({ packDir, engine = 'claude', outputType = 'final-exam-review', customPrompt = '', taskPrompt = '' }) {
+  engine = normalizeAgentEngine(engine);
+  const fullPackDir = safeAgentPackPath(packDir);
+  const manifestPath = path.join(fullPackDir, 'manifest.json');
+  const taskPath = path.join(fullPackDir, 'AGENT_TASK.md');
+  const manifest = JSON.parse(await fsp.readFile(manifestPath, 'utf8'));
+  const task = await fsp.readFile(taskPath, 'utf8');
+  const title = manifest.title || 'Knowledge Forge Source';
+  const defaultPrompt = makeFinalExamReviewPrompt({ packDir: fullPackDir, task });
+  let prompt = buildAgentPrompt({ customPrompt, taskPrompt, defaultPrompt });
+  if (engine === 'openclaw') {
+    prompt = [
+      'Knowledge Forge task. Read the local source pack directory below and generate the requested Markdown artifact.',
+      `Pack directory: ${fullPackDir}`,
+      'Read manifest.json, AGENT_TASK.md, and chunks/*.md. Cite chunk ids. Do not invent facts; use NEEDS_SOURCE_REVIEW when uncertain.',
+      taskPrompt ? `User task prompt:\n${taskPrompt}` : '',
+      customPrompt ? `Custom prompt:\n${customPrompt}` : '',
+      'Output only the final Markdown artifact.',
+    ].filter(Boolean).join('\n\n');
+  }
+
+  let stdout = '';
+  let stderr = '';
+  let commandLine = '';
+  if (engine === 'openclaw') {
+    const sessionId = makeOpenClawSessionId(title);
+    const args = ['agent', '--local', '--agent', openclawAgentId, '--session-id', sessionId, '--thinking', 'off', '--message', prompt, '--timeout', '900', '--json'];
+    const resolved = resolveLocalAgentCommand('openclaw');
+    commandLine = `${resolved.command} ${[...resolved.argsPrefix, ...args].map((arg) => JSON.stringify(arg)).join(' ')}`;
+    ({ stdout, stderr } = await execFileText('openclaw', args, { cwd: fullPackDir, timeout: 15 * 60 * 1000 }));
+  } else if (engine === 'claude') {
+    const args = ['--bare', '--dangerously-skip-permissions', '--permission-mode', 'bypassPermissions', '--add-dir', fullPackDir, '--print', prompt];
+    const resolved = resolveLocalAgentCommand('claude');
+    commandLine = `${resolved.command} ${[...resolved.argsPrefix, ...args].map((arg) => JSON.stringify(arg)).join(' ')}`;
+    ({ stdout, stderr } = await execFileText('claude', args, { cwd: fullPackDir }));
+  } else if (engine === 'codex') {
+    ({ stdout, stderr, commandLine } = await runCodexExec({ cwd: fullPackDir, prompt, timeout: 15 * 60 * 1000 }));
+  }
+
+  const content = extractAgentOutput(engine, stdout).trim();
+  if (!content) {
+    const error = new Error(`${engine} returned empty output`);
+    error.statusCode = 502;
+    error.stderr = stderr;
+    throw error;
+  }
+
+  const artifactTitle = `${outputType === 'final-exam-review' ? 'AI Review Pack' : 'AI Notes'} - ${title}`;
+  return {
+    engine,
+    title: artifactTitle,
+    content,
+    stderr,
+    agentPack: fullPackDir,
+    pendingSave: true,
+    sourceTitle: title,
+    sourceAgentPack: fullPackDir,
+    command: commandLine,
+  };
+}
+
+
+async function runComputerAgentOnBatch({ packDirs = [], engine = 'claude', outputType = 'final-exam-review', customPrompt = '', taskPrompt = '' }) {
+  engine = normalizeAgentEngine(engine);
+  const fullPackDirs = packDirs.map((packDir) => safeAgentPackPath(packDir));
+  if (!fullPackDirs.length) {
+    const error = new Error('No source packs selected');
+    error.statusCode = 400;
+    throw error;
+  }
+  const manifests = [];
+  for (const packDir of fullPackDirs) {
+    const manifest = JSON.parse(await fsp.readFile(path.join(packDir, 'manifest.json'), 'utf8'));
+    manifests.push({ packDir, manifest });
+  }
+  const title = manifests.length === 1
+    ? manifests[0].manifest.title
+    : `Fused Review - ${manifests.map((item) => item.manifest.title).slice(0, 3).join(' + ')}${manifests.length > 3 ? ` + ${manifests.length - 3} more` : ''}`;
+  const defaultPrompt = makeFinalExamReviewPrompt({ manifests, mode: 'batch' });
+  let prompt = buildAgentPrompt({ customPrompt, taskPrompt, defaultPrompt });
+  if (engine === 'openclaw') {
+    prompt = [
+      'Knowledge Forge fused task. Read all local source pack directories below and generate ONE integrated Markdown artifact.',
+      'Pack directories:',
+      ...fullPackDirs.map((dir, index) => `${index + 1}. ${dir}`),
+      'For each pack, read manifest.json, AGENT_TASK.md, and chunks/*.md. Cite source titles and chunk ids. Do not invent facts; use NEEDS_SOURCE_REVIEW when uncertain.',
+      taskPrompt ? `User task prompt:\n${taskPrompt}` : '',
+      customPrompt ? `Custom prompt:\n${customPrompt}` : '',
+      'Output only the final Markdown artifact.',
+    ].filter(Boolean).join('\n\n');
+  }
+
+  let stdout = '';
+  let stderr = '';
+  let commandLine = '';
+  const cwd = fullPackDirs[0];
+  if (engine === 'openclaw') {
+    const sessionId = makeOpenClawSessionId(title);
+    const args = ['agent', '--local', '--agent', openclawAgentId, '--session-id', sessionId, '--thinking', 'off', '--message', prompt, '--timeout', '900', '--json'];
+    const resolved = resolveLocalAgentCommand('openclaw');
+    commandLine = `${resolved.command} ${[...resolved.argsPrefix, ...args].map((arg) => JSON.stringify(arg)).join(' ')}`;
+    ({ stdout, stderr } = await execFileText('openclaw', args, { cwd, timeout: 15 * 60 * 1000 }));
+  } else if (engine === 'claude') {
+    const addDirs = fullPackDirs.flatMap((dir) => ['--add-dir', dir]);
+    const args = ['--bare', '--dangerously-skip-permissions', '--permission-mode', 'bypassPermissions', ...addDirs, '--print', prompt];
+    const resolved = resolveLocalAgentCommand('claude');
+    commandLine = `${resolved.command} ${[...resolved.argsPrefix, ...args].map((arg) => JSON.stringify(arg)).join(' ')}`;
+    ({ stdout, stderr } = await execFileText('claude', args, { cwd, timeout: 15 * 60 * 1000 }));
+  } else if (engine === 'codex') {
+    const codexPrompt = `${prompt}\n\nAccessible pack directories:\n${fullPackDirs.join('\n')}`;
+    ({ stdout, stderr, commandLine } = await runCodexExec({ cwd, prompt: codexPrompt, timeout: 15 * 60 * 1000 }));
+  }
+
+  const content = extractAgentOutput(engine, stdout).trim();
+  if (!content) {
+    const error = new Error(`${engine} returned empty output`);
+    error.statusCode = 502;
+    error.stderr = stderr;
+    throw error;
+  }
+  const artifactTitle = `${outputType === 'final-exam-review' ? 'AI Fused Review Pack' : 'AI Fused Notes'} - ${title}`;
+  return {
+    engine,
+    title: artifactTitle,
+    content,
+    stderr,
+    agentPacks: fullPackDirs,
+    pendingSave: true,
+    sourceTitle: title,
+    sourceAgentPacks: fullPackDirs,
+    command: commandLine,
+  };
+}
+
+
+async function checkCommandAvailable(command, args = ['--version']) {
+  try {
+    const result = await execFileText(command, args, { timeout: 15000, maxBuffer: 1024 * 1024 });
+    return { available: true, version: String(result.stdout || result.stderr || '').trim().split(/\r?\n/)[0] };
+  } catch (error) {
+    return { available: false, error: error.message };
+  }
+}
+
+async function detectCurrentAgent() {
+  const [claude, codex, openclaw] = await Promise.all([
+    checkCommandAvailable('claude', ['--version']),
+    checkCommandAvailable('codex', ['--version']),
+    checkCommandAvailable('openclaw', ['--version']),
+  ]);
+  const preferred = claude.available ? 'claude' : openclaw.available ? 'openclaw' : codex.available ? 'codex' : null;
+  return {
+    ok: true,
+    preferred,
+    currentRuntime: 'Knowledge Forge can launch Claude Code, Codex CLI, or OpenClaw. OpenClaw uses short path-based prompts to avoid Windows command-line length limits.',
+    agents: {
+      claude: { label: 'Claude Code', ...claude },
+      openclaw: { label: 'OpenClaw', ...openclaw },
+      codex: { label: 'Codex CLI', ...codex },
+    },
+  };
+}
+
+
+function shellQuotePowerShell(value = '') {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+async function openExternalAgentTerminal({ packDir, packDirs = [], engine = 'claude', mode = 'separate' }) {
+  const dirs = (packDirs.length ? packDirs : [packDir]).filter(Boolean).map((dir) => safeAgentPackPath(dir));
+  if (!dirs.length) {
+    const error = new Error('No source pack selected');
+    error.statusCode = 400;
+    throw error;
+  }
+  const firstDir = dirs[0];
+  const title = engine === 'openclaw' ? 'Knowledge Forge - OpenClaw Agent' : engine === 'codex' ? 'Knowledge Forge - Codex CLI' : 'Knowledge Forge - Claude Code';
+  const prompt = mode === 'fuse'
+    ? `Read all Knowledge Forge agent packs listed here and create ONE fused final-exam review Markdown. Cite source titles and chunk ids. Packs:\n${dirs.join('\n')}`
+    : `Read this Knowledge Forge agent pack and create a final-exam review Markdown. Cite chunk ids. Pack: ${firstDir}`;
+
+  let command = '';
+  if (engine === 'openclaw') {
+    const resolved = resolveLocalAgentCommand('openclaw');
+    const actualCommand = `${shellQuotePowerShell(resolved.command)} ${resolved.argsPrefix.map(shellQuotePowerShell).join(' ')} agent --local --agent ${shellQuotePowerShell(openclawAgentId)} --session-id ${shellQuotePowerShell(makeOpenClawSessionId(mode === 'fuse' ? 'fuse' : path.basename(firstDir)))} --timeout 900 --message ${shellQuotePowerShell(prompt)}`;
+    command = `Set-Location ${shellQuotePowerShell(firstDir)}; $Host.UI.RawUI.BackgroundColor='White'; $Host.UI.RawUI.ForegroundColor='Black'; Clear-Host; Write-Host 'Knowledge Forge 外部终端'; Write-Host '即将执行真实命令：'; Write-Host ${shellQuotePowerShell(actualCommand)}; Write-Host ''; ${actualCommand}; Write-Host ''; Write-Host '按 Enter 关闭...'; Read-Host`;
+  } else if (engine === 'codex') {
+    const tmpFile = path.join(os.tmpdir(), `knowledge-forge-codex-terminal-${Date.now()}.md`);
+    const actualCommand = `${shellQuotePowerShell(resolveLocalAgentCommand('codex').command)} exec --skip-git-repo-check -C ${shellQuotePowerShell(firstDir)} --sandbox read-only --output-last-message ${shellQuotePowerShell(tmpFile)} ${shellQuotePowerShell(prompt)}`;
+    command = `Set-Location ${shellQuotePowerShell(firstDir)}; $Host.UI.RawUI.BackgroundColor='White'; $Host.UI.RawUI.ForegroundColor='Black'; Clear-Host; Write-Host 'Knowledge Forge 外部终端'; Write-Host '即将执行真实命令：'; Write-Host ${shellQuotePowerShell(actualCommand)}; Write-Host ''; ${actualCommand}; if (Test-Path ${shellQuotePowerShell(tmpFile)}) { Write-Host ''; Write-Host 'Codex 输出：'; Get-Content ${shellQuotePowerShell(tmpFile)} -Raw }; Write-Host ''; Write-Host '按 Enter 关闭...'; Read-Host`;
+  } else {
+    const resolved = resolveLocalAgentCommand('claude');
+    const addDirs = dirs.map((dir) => `--add-dir ${shellQuotePowerShell(dir)}`).join(' ');
+    const actualCommand = `${shellQuotePowerShell(resolved.command)} --bare --dangerously-skip-permissions --permission-mode bypassPermissions ${addDirs} ${shellQuotePowerShell(prompt)}`;
+    command = `Set-Location ${shellQuotePowerShell(firstDir)}; $Host.UI.RawUI.BackgroundColor='White'; $Host.UI.RawUI.ForegroundColor='Black'; Clear-Host; Write-Host 'Knowledge Forge 外部终端'; Write-Host '即将执行真实命令：'; Write-Host ${shellQuotePowerShell(actualCommand)}; Write-Host ''; ${actualCommand}; Write-Host ''; Write-Host '按 Enter 关闭...'; Read-Host`;
+  }
+
+  const args = [
+    '-NoExit',
+    '-Command',
+    `$host.UI.RawUI.WindowTitle = ${shellQuotePowerShell(title)}; ${command}`,
+  ];
+  const child = spawn('powershell.exe', args, { detached: true, stdio: 'ignore', windowsHide: false });
+  child.unref();
+  return { opened: true, engine, mode, title, packDirs: dirs };
 }
 
 async function serveStatic(req, res) {
@@ -289,6 +759,83 @@ async function serveStatic(req, res) {
   } catch {
     sendText(res, 404, 'Not Found');
   }
+}
+
+
+async function listStaging(limit = 30) {
+  const stagingDir = safeVaultPath('.knowledge-forge/staging');
+  let entries = [];
+  try {
+    entries = await fsp.readdir(stagingDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const items = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    const full = path.join(stagingDir, entry.name);
+    try {
+      const manifest = JSON.parse(await fsp.readFile(full, 'utf8'));
+      if (manifest.status === 'rejected') continue;
+      const draftStat = manifest.draftPath ? await fsp.stat(manifest.draftPath).catch(() => null) : null;
+      items.push({
+        id: manifest.id,
+        status: manifest.status || 'staged',
+        title: manifest.title,
+        source: manifest.source,
+        kind: manifest.kind,
+        parser: manifest.parser,
+        createdAt: manifest.createdAt,
+        updatedAt: manifest.updatedAt,
+        size: draftStat?.size || 0,
+        draftRelativePath: manifest.draftPath ? toVaultRelative(manifest.draftPath) : null,
+        noteRelativePath: manifest.notePath ? toVaultRelative(manifest.notePath) : null,
+        agentPack: manifest.agentPack ? {
+          ...manifest.agentPack,
+          packDir: toPortablePath(manifest.agentPack.packDir),
+          manifestPath: toPortablePath(manifest.agentPack.manifestPath),
+          instructionPath: toPortablePath(manifest.agentPack.instructionPath),
+        } : null,
+        analysis: manifest.analysis,
+        linkCandidates: manifest.linkCandidates || [],
+        conceptCandidates: manifest.conceptCandidates || [],
+      });
+    } catch {}
+  }
+  return items
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+    .slice(0, limit);
+}
+
+async function readStagingItem(id) {
+  const safeId = String(id || '').replace(/[^a-zA-Z0-9_.-]/g, '');
+  if (!safeId) throw new Error('Missing staging id');
+  const manifestPath = safeVaultPath(`.knowledge-forge/staging/${safeId}.json`);
+  const manifest = JSON.parse(await fsp.readFile(manifestPath, 'utf8'));
+  const content = manifest.draftPath ? await fsp.readFile(manifest.draftPath, 'utf8').catch(() => '') : '';
+  return {
+    id: manifest.id,
+    status: manifest.status || 'staged',
+    title: manifest.title,
+    source: manifest.source,
+    kind: manifest.kind,
+    parser: manifest.parser,
+    createdAt: manifest.createdAt,
+    updatedAt: manifest.updatedAt,
+    draftRelativePath: manifest.draftPath ? toVaultRelative(manifest.draftPath) : null,
+    noteRelativePath: manifest.notePath ? toVaultRelative(manifest.notePath) : null,
+    obsidianUri: manifest.notePath ? makeObsidianOpenUri(manifest.notePath) : null,
+    content,
+    analysis: manifest.analysis,
+    linkCandidates: manifest.linkCandidates || [],
+    conceptCandidates: manifest.conceptCandidates || [],
+    agentPack: manifest.agentPack ? {
+      ...manifest.agentPack,
+      packDir: toPortablePath(manifest.agentPack.packDir),
+      manifestPath: toPortablePath(manifest.agentPack.manifestPath),
+      instructionPath: toPortablePath(manifest.agentPack.instructionPath),
+    } : null,
+  };
 }
 
 function handleUpload(req, res) {
@@ -317,21 +864,37 @@ function handleUpload(req, res) {
     try {
       if (!uploadPromise) return sendJson(res, 400, { error: 'No file uploaded' });
       const savePath = await uploadPromise;
-      const result = await ingestFile({ path: savePath, originalName, mimeType, size }, { vaultPath: DEFAULT_VAULT_PATH });
+      const directWrite = new URL(req.url, `http://${req.headers.host}`).searchParams.get('direct') === 'true';
+      const result = directWrite
+        ? await ingestFile({ path: savePath, originalName, mimeType, size }, { vaultPath: DEFAULT_VAULT_PATH })
+        : await stageFile({ path: savePath, originalName, mimeType, size }, { vaultPath: DEFAULT_VAULT_PATH });
       sendJson(res, 200, {
         ok: true,
+        staged: !directWrite,
+        stagingId: result.stagingId,
         kind: result.parsed.kind,
         title: result.parsed.title,
         parser: result.parsed.parser,
-        notePath: toPortablePath(result.notePath),
-        noteRelativePath: toVaultRelative(result.notePath),
-        obsidianUri: `obsidian://open?path=${encodeURIComponent(result.notePath)}`,
+        notePath: result.notePath ? toPortablePath(result.notePath) : null,
+        noteRelativePath: result.notePath ? toVaultRelative(result.notePath) : null,
+        draftPath: result.draftPath ? toPortablePath(result.draftPath) : null,
+        draftRelativePath: result.draftPath ? toVaultRelative(result.draftPath) : null,
+        obsidianUri: result.notePath ? makeObsidianOpenUri(result.notePath) : null,
         manifestPath: toPortablePath(result.manifestPath),
+        agentPack: result.agentPack ? {
+          packDir: toPortablePath(result.agentPack.packDir),
+          manifestPath: toPortablePath(result.agentPack.manifestPath),
+          instructionPath: toPortablePath(result.agentPack.instructionPath),
+          chunkCount: result.agentPack.chunkCount,
+          instruction: result.agentPack.instruction,
+          recommendedAgents: result.agentPack.manifest?.recommendedAgents || [],
+        } : null,
         analysis: result.parsed.analysis,
         linkCandidates: result.linkCandidates,
         conceptCandidates: result.conceptCandidates,
         noteContent: result.content?.slice(0, 12000),
         recentInbox: await listInbox(20),
+        stagingQueue: await listStaging(20),
         parsed: result.parsed.kind === 'data' ? result.parsed : { ...result.parsed, markdown: result.parsed.markdown?.slice(0, 5000) },
       });
     } catch (error) {
@@ -398,11 +961,11 @@ function getAgentQuickStartPrompt() {
     '- NotebookLM Bridge 深度阅读桥接',
     '',
     '请先阅读仓库里的 AGENTS.md、FEATURES.md、SETUP.md，然后：',
-    '1. 先运行 scripts/doctor.ps1 检查环境。',
-    '2. 推荐执行 scripts/setup.ps1 -Full。',
-    '3. 生成/确认 .env.local 和 knowledge-forge.config.json。',
-    '4. 启动 scripts/start.ps1。',
-    '5. 运行 scripts/verify.ps1 和 scripts/test-plan.ps1。',
+    '1. 先运行 .\doctor.ps1 或 .\scripts\doctor.ps1 检查环境。',
+    '2. 推荐执行 .\setup.ps1 -Full。',
+    '3. 执行 .\configure.ps1 -Full，生成/确认 .env.local 和 knowledge-forge.config.json。',
+    '4. 启动 .\start.ps1，或双击 start.bat。',
+    '5. 运行 .\verify.ps1 -Smoke -StartServer。',
     '6. 告诉我哪些能力已经可用，哪些还需要我手动登录或配置。',
     '',
     '安全要求：不要询问或保存我的 Google 密码；不要提交 .env.local、cookies、NotebookLM storage_state.json 或私人资料。',
@@ -413,10 +976,10 @@ function getNotebookLmActions(connected = false) {
   return [
     { id: 'auth-check', label: '检查登录状态', available: true, output: 'status' },
     { id: 'open-login', label: '打开 NotebookLM 登录', available: true, requiresConfirmation: true, output: 'browser' },
-    { id: 'write-sample-digest', label: '写入示例 Digest 到 Obsidian Inbox', available: true, requiresConfirmation: true, output: 'markdown' },
-    { id: 'create-notebook', label: '创建 Notebook', available: connected, requiresConnection: true, output: 'notebooklm', reason: connected ? undefined : 'NotebookLM is not connected' },
-    { id: 'add-source', label: '添加 Source', available: connected, requiresConnection: true, output: 'notebooklm', reason: connected ? undefined : 'NotebookLM is not connected' },
-    { id: 'ask', label: '提问生成 Digest', available: connected, requiresConnection: true, output: 'markdown', reason: connected ? undefined : 'NotebookLM is not connected' },
+    { id: 'write-sample-digest', label: '写入示例记录到 Obsidian Inbox', available: true, requiresConfirmation: true, output: 'markdown' },
+    { id: 'create-notebook', label: '创建 Notebook', available: connected, requiresConnection: true, output: 'notebooklm', reason: connected ? undefined : 'NotebookLM 尚未连接或登录态已失效' },
+    { id: 'add-source', label: '添加 Source', available: connected, requiresConnection: true, output: 'notebooklm', reason: connected ? undefined : 'NotebookLM 尚未连接或登录态已失效' },
+    { id: 'ask', label: '提问生成 Digest', available: connected, requiresConnection: true, output: 'markdown', reason: connected ? undefined : 'NotebookLM 尚未连接或登录态已失效' },
   ];
 }
 
@@ -427,7 +990,7 @@ function getLocalForgeActions() {
     { id: 'quiz', label: '生成测验题', description: '生成选择题/简答题草稿。', available: true, output: 'markdown' },
     { id: 'flashcards', label: '生成闪卡', description: '生成 Q/A 卡片，可后续导出 Anki。', available: true, output: 'markdown' },
     { id: 'final-exam-review', label: '期末复习包', description: '生成复习计划、考点清单、速记卡和临考行动表。', available: true, output: 'markdown', skillRepo: 'https://github.com/577206/final-exam-review-skill' },
-    { id: 'pdf', label: '导出 PDF', description: 'PDF 渲染器尚未接入，演示版先返回 501。', available: false, reason: 'PDF renderer not wired yet', output: 'pdf' },
+    { id: 'pdf', label: '导出 PDF', description: '将 Markdown 通过 Pandoc + Chrome/Edge 渲染为真实 PDF 文件。', available: Boolean(findChromeExecutable()), reason: findChromeExecutable() ? undefined : '需要安装 Chrome 或 Edge', output: 'pdf' },
   ];
 }
 
@@ -516,12 +1079,6 @@ function buildLocalForgeArtifact(action, note) {
     };
   }
 
-  if (action === 'pdf') {
-    const error = new Error('PDF export is not wired in this demo build.');
-    error.statusCode = 501;
-    throw error;
-  }
-
   if (action === 'summary') {
     return {
       title: `Summary - ${title}`,
@@ -606,6 +1163,118 @@ function buildLocalForgeArtifact(action, note) {
   throw error;
 }
 
+function findChromeExecutable() {
+  const candidates = [
+    process.env.CHROME_PATH,
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+    path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+  ].filter(Boolean);
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+}
+
+function pandocHtmlTemplate(title, body = '') {
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>${title}</title>
+<script>
+  window.MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
+      displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],
+      processEscapes: true,
+      processEnvironments: true
+    },
+    svg: { fontCache: 'global' },
+    startup: { typeset: true }
+  };
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+<style>
+  body { font-family: "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif; max-width: 920px; margin: 36px auto; line-height: 1.72; color: #111827; }
+  h1, h2, h3 { line-height: 1.25; color: #0f172a; }
+  h1 { border-bottom: 3px solid #f59e0b; padding-bottom: 12px; }
+  h2 { margin-top: 34px; border-left: 6px solid #f59e0b; padding-left: 12px; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; }
+  pre { background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px; white-space: pre-wrap; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #d1d5db; padding: 8px 10px; }
+  th { background: #f3f4f6; }
+  blockquote { border-left: 4px solid #93c5fd; margin: 16px 0; padding: 8px 14px; background: #eff6ff; color: #1e3a8a; }
+</style>
+</head>
+<body>
+${body}
+</body>
+</html>`;
+}
+
+async function exportMarkdownToPdf({ title, markdown, sourcePath }) {
+  const safeTitle = String(title || 'Knowledge Forge PDF').replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 90) || 'Knowledge Forge PDF';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const base = `${stamp}-${safeTitle}`;
+  const tmpMd = path.join(pdfDir, `${base}.md`);
+  const tmpHtml = path.join(pdfDir, `${base}.html`);
+  const pdfPath = path.join(pdfDir, `${base}.pdf`);
+  await fsp.writeFile(tmpMd, markdown, 'utf8');
+
+  let htmlBody = '';
+  await execFileText('pandoc', [
+    tmpMd,
+    '--from', 'markdown+tex_math_dollars+tex_math_single_backslash+pipe_tables+fenced_code_blocks',
+    '--to', 'html5',
+    '--standalone',
+    '--mathjax=https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js',
+    '--metadata', `title=${title}`,
+    '--output', tmpHtml,
+  ], { timeout: 120000, maxBuffer: 20 * 1024 * 1024 });
+  try {
+    htmlBody = await fsp.readFile(tmpHtml, 'utf8');
+  } catch {
+    htmlBody = pandocHtmlTemplate(title, `<pre>${String(markdown).replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]))}</pre>`);
+    await fsp.writeFile(tmpHtml, htmlBody, 'utf8');
+  }
+
+  const chrome = findChromeExecutable();
+  if (!chrome) {
+    const error = new Error('未找到 Chrome/Edge，无法打印 PDF。请安装 Chrome，或只保留 Markdown 输出。');
+    error.statusCode = 501;
+    throw error;
+  }
+  await execFileText(chrome, [
+    '--headless=new',
+    '--disable-gpu',
+    '--no-sandbox',
+    '--virtual-time-budget=5000',
+    `--print-to-pdf=${pdfPath}`,
+    pathToFileURL(tmpHtml).href,
+  ], { timeout: 120000, maxBuffer: 20 * 1024 * 1024 });
+
+  const stat = await fsp.stat(pdfPath);
+  const record = await recordArtifact({
+    title: `PDF - ${title}`,
+    capability: 'pdf-export',
+    action: 'pdf',
+    engine: 'pandoc+chrome',
+    artifactPath: toVaultRelative(pdfPath),
+    fullPath: pdfPath,
+    sourcePath,
+    status: 'ready',
+    reviewRequired: false,
+  });
+  return {
+    title: `PDF - ${title}`,
+    pdfPath,
+    pdfRelativePath: toVaultRelative(pdfPath),
+    sizeBytes: stat.size,
+    artifactRecord: record,
+  };
+}
+
 async function writeInboxArtifact(title, content, meta = {}) {
   const inboxDir = safeVaultPath('inbox');
   await fsp.mkdir(inboxDir, { recursive: true });
@@ -630,6 +1299,26 @@ async function writeInboxArtifact(title, content, meta = {}) {
   };
 }
 
+async function handlePdfExport(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    let title = String(body.title || 'Knowledge Forge PDF').trim();
+    let markdown = String(body.markdown || '').trim();
+    let sourcePath = body.sourcePath;
+    if (!markdown && body.notePath) {
+      const note = await readVaultNote(body.notePath);
+      title = title || note.title;
+      markdown = note.content;
+      sourcePath = note.path;
+    }
+    if (!markdown) return sendJson(res, 400, { ok: false, error: '缺少可导出的 Markdown 内容' });
+    const pdf = await exportMarkdownToPdf({ title, markdown, sourcePath });
+    return sendJson(res, 200, { ok: true, ...pdf, recentArtifacts: await listArtifacts(20) });
+  } catch (error) {
+    return sendJson(res, error.statusCode || 500, { ok: false, error: error.message });
+  }
+}
+
 async function handleLocalForgeGenerate(req, res) {
   try {
     const body = await readJsonBody(req);
@@ -637,6 +1326,10 @@ async function handleLocalForgeGenerate(req, res) {
     if (!action) return sendJson(res, 400, { ok: false, error: 'Missing action' });
     if (!body.notePath) return sendJson(res, 400, { ok: false, error: 'Missing notePath' });
     const note = await readVaultNote(body.notePath);
+    if (action === 'pdf') {
+      const pdf = await exportMarkdownToPdf({ title: `PDF - ${note.title}`, markdown: note.content, sourcePath: note.path });
+      return sendJson(res, 200, { ok: true, action, title: pdf.title, format: 'pdf', ...pdf, recentInbox: await listInbox(20) });
+    }
     const artifact = buildLocalForgeArtifact(action, note);
     const writeResult = body.writeToInbox === false ? null : await writeInboxArtifact(artifact.title, artifact.content, {
       capability: 'local-forge',
@@ -683,24 +1376,24 @@ async function handleNotebookLmAction(req, res) {
     }
 
     if (action === 'write-sample-digest') {
-      const title = body.title || 'NotebookLM Demo Digest';
+      const title = body.title || 'NotebookLM 示例记录';
       const content = [
         `# ${title}`,
         '',
-        '## Source-grounded digest',
-        '- This is a local demo artifact for the NotebookLM → Agent → Obsidian flow.',
-        '- Real NotebookLM notebook/source/ask automation is intentionally behind a confirmation action.',
-        '- After auth is connected, this endpoint can be extended to call create-notebook/add-source/ask.',
+        '## 当前状态',
+        '- 这是本地示例记录，用来验证 NotebookLM → Forge → Obsidian 的写回链路。',
+        '- 它不会自动替你操作 Google，也不会读取你的 NotebookLM 私人资料。',
+        '- 当前稳定模式：用户在 NotebookLM 手动生成内容，再粘贴回 Forge 捕捉。',
         '',
-        '## Next review actions',
-        '- [ ] Replace demo bullets with NotebookLM answer JSON.',
-        '- [ ] Verify important claims against the original sources.',
-        '- [ ] Promote reviewed notes out of inbox.',
+        '## 下一步',
+        '- [ ] 在 NotebookLM 中手动上传 source 并生成摘要/学习指南/测验题。',
+        '- [ ] 复制生成结果，回到 Forge 使用「粘贴捕捉」。',
+        '- [ ] 人工复核后再从 inbox 提升到长期知识库。',
       ].join('\n');
       const writeResult = await writeInboxArtifact(title, content, {
         capability: 'notebooklm',
         action: 'write-sample-digest',
-        engine: 'notebooklm-manual-placeholder',
+        engine: 'notebooklm-manual-demo',
         notebookLink: body.notebookLink || null,
         requestedOutputs: body.requestedOutputs || [],
       });
@@ -744,7 +1437,7 @@ async function handleNotebookLmAction(req, res) {
       return sendJson(res, 200, { ok: true, action, status: 'completed', title, outputType, format: 'markdown', content, ...writeResult, recentInbox: await listInbox(20) });
     }
 
-    return sendJson(res, 501, { ok: false, action, error: 'This NotebookLM action is declared for the UI but not wired in the demo backend yet.', implementedActions: ['auth-check', 'open-login', 'write-sample-digest', 'capture-paste'] });
+    return sendJson(res, 501, { ok: false, action, error: '这个 NotebookLM 自动动作尚未接入。当前已实现：检查登录、打开登录、写入示例记录、粘贴捕捉。', implementedActions: ['auth-check', 'open-login', 'write-sample-digest', 'capture-paste'] });
   } catch (error) {
     return sendJson(res, 500, { ok: false, error: error.message });
   }
@@ -795,14 +1488,64 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 400, { error: error.message });
     }
   }
+  if (req.method === 'GET' && url.pathname === '/api/staging') {
+    try {
+      const limit = Number(url.searchParams.get('limit') || 30);
+      return sendJson(res, 200, { ok: true, vaultPath: DEFAULT_VAULT_PATH, items: await listStaging(limit) });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error.message });
+    }
+  }
+  if (req.method === 'GET' && url.pathname === '/api/staging/item') {
+    try {
+      return sendJson(res, 200, { ok: true, item: await readStagingItem(url.searchParams.get('id')) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message });
+    }
+  }
+  if (req.method === 'POST' && url.pathname === '/api/staging/approve') {
+    try {
+      const body = await readJsonBody(req);
+      const approved = await approveStaged(body.id, { vaultPath: DEFAULT_VAULT_PATH, title: body.title, content: body.content });
+      return sendJson(res, 200, {
+        ok: true,
+        notePath: toPortablePath(approved.notePath),
+        noteRelativePath: toVaultRelative(approved.notePath),
+        obsidianUri: makeObsidianOpenUri(approved.notePath),
+        recentInbox: await listInbox(20),
+        stagingQueue: await listStaging(20),
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message });
+    }
+  }
+  if (req.method === 'POST' && url.pathname === '/api/staging/reject') {
+    try {
+      const body = await readJsonBody(req);
+      await rejectStaged(body.id, { vaultPath: DEFAULT_VAULT_PATH, reason: body.reason });
+      return sendJson(res, 200, { ok: true, stagingQueue: await listStaging(20) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message });
+    }
+  }
   if (req.method === 'POST' && url.pathname === '/api/vault/open') {
     try {
       const body = await readJsonBody(req);
       const target = body.path ? safeVaultPath(body.path) : DEFAULT_VAULT_PATH;
+      const stat = await fsp.stat(target).catch(() => null);
+      const mode = body.mode || 'open';
+      if (mode === 'reveal' && stat?.isFile()) {
+        revealLocalPath(target);
+        return sendJson(res, 200, { ok: true, mode: 'reveal', opened: target });
+      }
+      if (stat?.isFile()) {
+        openLocalFile(target);
+        return sendJson(res, 200, { ok: true, mode: 'file', opened: target });
+      }
       openLocalPath(target);
-      return sendJson(res, 200, { ok: true, opened: body.path || DEFAULT_VAULT_PATH });
+      return sendJson(res, 200, { ok: true, mode: 'folder', opened: target });
     } catch (error) {
-      return sendJson(res, 400, { error: error.message });
+      return sendJson(res, 400, { ok: false, error: error.message });
     }
   }
   if (req.method === 'GET' && url.pathname === '/api/obsidian/status') {
@@ -834,6 +1577,13 @@ const server = http.createServer(async (req, res) => {
       prompt: getAgentQuickStartPrompt(),
     });
   }
+  if (req.method === 'GET' && url.pathname === '/api/agent/current') {
+    try {
+      return sendJson(res, 200, await detectCurrentAgent());
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error.message });
+    }
+  }
   if (req.method === 'GET' && url.pathname === '/api/capabilities') {
     try {
       return sendJson(res, 200, { ok: true, recommendedSetup: 'full', capabilities: await getCapabilities() });
@@ -849,25 +1599,107 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 500, { ok: false, error: error.message });
     }
   }
+  if (req.method === 'POST' && url.pathname === '/api/artifacts/save') {
+    try {
+      const body = await readJsonBody(req);
+      const title = String(body.title || 'Knowledge Forge Agent Output').trim();
+      const content = String(body.content || '').trim();
+      if (!content) return sendJson(res, 400, { ok: false, error: 'Missing content' });
+      const writeResult = await writeInboxArtifact(title, content, {
+        capability: 'computer-agent',
+        action: body.action || 'manual-save',
+        engine: body.engine || 'unknown',
+        sourceTitle: body.sourceTitle,
+        sourceAgentPack: body.sourceAgentPack,
+        sourceAgentPacks: body.sourceAgentPacks,
+        command: body.command,
+        savedByUser: true,
+      });
+      return sendJson(res, 200, { ok: true, title, ...writeResult, recentInbox: await listInbox(20) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message });
+    }
+  }
   if (req.method === 'GET' && url.pathname === '/api/local-forge/actions') {
     return sendJson(res, 200, { ok: true, actions: getLocalForgeActions() });
   }
   if (req.method === 'POST' && url.pathname === '/api/local-forge/generate') {
     return handleLocalForgeGenerate(req, res);
   }
+  if (req.method === 'POST' && url.pathname === '/api/pdf/export') {
+    return handlePdfExport(req, res);
+  }
+  if (req.method === 'POST' && url.pathname === '/api/agent/run') {
+    try {
+      const body = await readJsonBody(req);
+      if (!body.packDir) return sendJson(res, 400, { ok: false, error: 'Missing packDir' });
+      const result = await runComputerAgentOnPack({
+        packDir: body.packDir,
+        engine: body.engine || 'claude',
+        outputType: body.outputType || 'final-exam-review',
+        customPrompt: body.customPrompt,
+        taskPrompt: body.taskPrompt,
+      });
+      return sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      return sendJson(res, error.statusCode || 500, {
+        ok: false,
+        error: error.message,
+        stderr: error.stderr,
+        stdout: error.stdout,
+        hint: 'Make sure Claude Code or Codex is installed and configured on this computer.',
+      });
+    }
+  }
+  if (req.method === 'POST' && url.pathname === '/api/agent/open-terminal') {
+    try {
+      const body = await readJsonBody(req);
+      const result = await openExternalAgentTerminal({
+        packDir: body.packDir,
+        packDirs: Array.isArray(body.packDirs) ? body.packDirs : [],
+        engine: body.engine || 'claude',
+        mode: body.mode || 'separate',
+      });
+      return sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      return sendJson(res, error.statusCode || 500, { ok: false, error: error.message });
+    }
+  }
+  if (req.method === 'POST' && url.pathname === '/api/agent/run-batch') {
+    try {
+      const body = await readJsonBody(req);
+      if (!Array.isArray(body.packDirs) || !body.packDirs.length) return sendJson(res, 400, { ok: false, error: 'Missing packDirs' });
+      const result = await runComputerAgentOnBatch({
+        packDirs: body.packDirs,
+        engine: body.engine || 'claude',
+        outputType: body.outputType || 'final-exam-review',
+        customPrompt: body.customPrompt,
+        taskPrompt: body.taskPrompt,
+      });
+      return sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      return sendJson(res, error.statusCode || 500, {
+        ok: false,
+        error: error.message,
+        stderr: error.stderr,
+        stdout: error.stdout,
+        hint: 'Make sure Claude Code or Codex is installed and configured on this computer.',
+      });
+    }
+  }
   if (req.method === 'POST' && url.pathname === '/api/notebooklm/action') {
-    return handleNotebookLmAction(req, res);
+    return sendJson(res, 503, { ok: false, error: 'NotebookLM Bridge 正在测试中，即将上线。当前发布版暂不开放。' });
   }
   if (req.method === 'GET' && url.pathname === '/api/notebooklm/status') {
-    const status = await runNotebookLmAuthCheck();
     return sendJson(res, 200, {
       ok: true,
-      ...status,
-      actions: getNotebookLmActions(status.connected),
+      installed: false,
+      connected: false,
+      status: 'testing',
+      message: 'NotebookLM Bridge 正在测试中，即将上线。当前发布版暂不开放。',
+      actions: [],
       safety: {
-        unofficial: true,
-        authStorage: 'local file only; never expose cookies or storage_state.json',
-        writesRequireConfirmation: true,
+        unavailableInThisRelease: true,
       },
     });
   }

@@ -31,3 +31,9 @@ NOTEBOOKLM_AUTH_JSON*
 # Project-local NotebookLM Python environment
 .venv-notebooklm/
 
+
+# Demo/local vaults and generated smoke files
+vault-demo/
+test-fixtures/verify-smoke.md
+*.tmp
+*.bak

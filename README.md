@@ -1,7 +1,7 @@
-# Knowledge Forge
+﻿# Knowledge Forge
 
 > **Agent-first 的本地知识摄入与学习工作台。**  
-> 融合 Obsidian 的长期知识库能力与 Google NotebookLM 的深度阅读能力，为 Claude Code / OpenClaw / Cursor / Codex 等 AI Agent 时代打造一套可配置、可复核、可持续积累的学习工作流。
+> 融合 Obsidian 的长期知识库能力与 Google NotebookLM 的深度阅读能力，为 Claude Code / Cursor / Codex 等 AI Agent 时代打造一套可配置、可复核、可持续积累的学习工作流。
 
 Knowledge Forge 的创作理念很简单：
 
@@ -58,7 +58,15 @@ Local Forge 本地摄入
 ```text
 请帮我安装和配置 Knowledge Forge。
 推荐使用 Full Setup；如果我想简化，再问我要启用哪些能力。
-请先阅读 AGENTS.md，然后运行 doctor/setup/configure/start/verify 脚本。
+请先阅读 AGENTS.md 和 `docs/AGENT_TOOLS_AND_SKILLS.md`，然后优先运行这些命令：
+
+1. .\doctor.ps1
+2. .\setup.ps1 -Full
+3. .\configure.ps1 -Full
+4. .\start.ps1
+5. .\verify.ps1 -Smoke -StartServer
+
+如果根目录脚本不可用，再使用 .\scripts\doctor.ps1 这类 scripts/ 下的等价脚本。
 ```
 
 ---
@@ -75,14 +83,16 @@ Knowledge Forge 给你一条本地优先的第二大脑工作流：
 PDF / 网页 / 课件 / Excel / Markdown
 → Knowledge Forge 本地摄入与预处理
 → Obsidian / Markdown vault inbox
-→ NotebookLM 可选阅读、问答、测验、闪卡、报告/PDF
-→ Agent / 人类复核
+→ Agent 正式生成复习包/笔记/报告（Claude Code / Codex）
+→ NotebookLM 可选深度阅读、问答和人工搬运输出
+→ 本地轻量规则仅作为草稿 fallback
+→ 人类复核
 → 长期知识库
 ```
 
 核心原则：
 
-> AI 和规则系统负责提出结构化建议，长期知识结构必须由人确认。
+> 正式学习产物优先由本机 Agent 基于完整 source pack 生成；NotebookLM 是可选的 source-grounded 深度阅读增强；本地轻量规则只作为离线 fallback 草稿。长期知识结构必须由人确认。
 
 ---
 
@@ -163,7 +173,7 @@ http://localhost:4177
 
 NotebookLM Bridge 是可选能力，不影响基础上传功能。
 
-连接 NotebookLM 后，可以把资料进一步生成：
+连接 NotebookLM 后，可以辅助资料深度阅读，并由用户或 Agent 把输出整理回 Knowledge Forge。当前正式输出主链路仍是 Agent；NotebookLM 自动生成能力按可用性逐步接入。可产出类型包括：
 
 - Summary Digest：摘要笔记
 - Study Guide：学习讲义
@@ -173,11 +183,15 @@ NotebookLM Bridge 是可选能力，不影响基础上传功能。
 - Report / PDF：报告或 PDF
 - Audio Overview：音频概览
 
-当前页面已经提供 NotebookLM 连接状态入口；完整生成动作会逐步接入。
+当前页面已经提供 NotebookLM 连接状态入口和人工捕获/整理工作流；不要把它描述成已完全自动化的主链路。
 
 > 注意：`notebooklm-py` 是非官方社区项目，使用 NotebookLM 的非公开接口。适合个人研究和学习自动化，不适合存储他人 Google 登录态或做未经授权的 SaaS。
 
 ---
+
+
+
+> 新用户电脑可能没有任何 Agent/CLI 配置。完整依赖、Agent runner、Skills、Tools 和空白电脑安装路线见：`docs/AGENT_TOOLS_AND_SKILLS.md`。
 
 ## 5 分钟上手
 
@@ -187,7 +201,25 @@ NotebookLM Bridge 是可选能力，不影响基础上传功能。
 start.bat
 ```
 
-第一次运行会引导你配置：
+第一次运行会自动检查 Node/npm、安装 npm 依赖、创建默认配置、运行 doctor，并打开：
+
+```text
+http://localhost:4177
+```
+
+如果你想让 Agent 或 PowerShell 完整验证这台电脑是否真的可用：
+
+```powershell
+.\doctor.ps1
+.\setup.ps1 -Full
+.\configure.ps1 -Full
+.\start.ps1
+.\verify.ps1 -Smoke -StartServer
+```
+
+通过标准：服务健康检查、上传、inbox 写入、Agent pack 生成、轻量 fallback 草稿、真实 PDF 导出、artifact registry 全部通过。Agent/Codex 调用另有可选 smoke。
+
+Vault 配置在：
 
 ```text
 .env.local
@@ -197,12 +229,6 @@ start.bat
 
 ```text
 KF_VAULT_PATH=D:\Your\Obsidian\Vault
-```
-
-然后打开：
-
-```text
-http://localhost:4177
 ```
 
 把 PDF / Markdown / TXT / Excel / CSV 拖进去，生成的 Markdown 会进入：
@@ -313,7 +339,7 @@ http://localhost:4177
 
 ## 可选：配置 NotebookLM Bridge
 
-如果你想让 NotebookLM 帮你阅读资料、生成摘要/测验/闪卡/报告，就继续。
+如果你想让 NotebookLM 帮你做 source-grounded 阅读、问答，或手动生成摘要/测验/闪卡/报告并整理回 inbox，就继续。正式复习包/报告仍建议走本机 Agent。
 
 ### 1. 安装 notebooklm-py
 
@@ -584,7 +610,7 @@ NotebookLM 检查：
 
 ### v0.4 Skill Ecosystem
 
-- OpenClaw / Claude Code Skill
+- Forge MCP Server / Claude Code Skill / Codex workflow
 - 学生学习工作流
 - 科研工作流
 - 企业知识库工作流
@@ -594,3 +620,14 @@ NotebookLM 检查：
 ## License
 
 MIT
+
+
+---
+
+## 诚实的生成链路说明
+
+- **正式输出**：完整复习包、学习报告、可导出 PDF 的主体 Markdown，优先走本机 Agent（Claude Code / Codex）。Agent 会读取 `.knowledge-forge/agent-packs/` 中的 manifest、AGENT_TASK 和 chunks。
+- **轻量规则**：`summary / study-guide / quiz / flashcards` 的本地规则产物只是 fallback 草稿，用于快速预览和无 Agent 环境下的最低可用结果，不等同于深度理解。
+- **NotebookLM**：可选增强，适合 source-grounded 阅读和 Q&A；当前以用户登录、手动生成/捕获、Agent 整理回写为可靠路径，不要求也不保存 Google 密码/cookies。
+- **Codex**：当前已作为主界面可选 Agent runner；通过 stdin 传入 Prompt，避免 Windows 长命令参数问题。
+- **OpenClaw**：不再由 Forge 网页启动；后续应通过 Forge MCP Server 反向调用 `ingest_document / run_custom_agent_task / export_review_pdf`。

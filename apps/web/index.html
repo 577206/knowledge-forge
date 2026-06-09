@@ -18,10 +18,10 @@
         </nav>
 
         <div class="hero-copy">
-          <p class="eyebrow">Local-first · NotebookLM optional</p>
+          <p class="eyebrow">本地优先 · Agent-first</p>
           <h1>把资料锻造成可复习、可输出、可沉淀的知识。</h1>
           <p class="subtitle">
-            一边是完全本地的 Local Forge，一边是可选增强的 NotebookLM Bridge。上传资料，选择 Summary、Study Guide、Quiz、Flashcards 或 PDF，让原始文件变成能进入 Obsidian inbox 的学习产物。
+            上传资料，让本机 Agent 生成学习材料、复习包和 PDF。满意后再手动保存到 Obsidian，避免把粗糙解析内容塞进你的知识库。
           </p>
         </div>
 
@@ -32,39 +32,39 @@
       </section>
 
       <section class="route-grid" id="homeView">
-        <article class="route-card local-card" data-route="local" tabindex="0" role="button" aria-label="进入 Local Forge">
+        <article class="route-card local-card" data-route="local" tabindex="0" role="button" aria-label="进入 Agent Forge">
           <div class="route-icon">⚒</div>
           <p class="route-kicker">不连接 Google · 本地优先</p>
-          <h2>Local Forge</h2>
+          <h2>Agent Forge</h2>
           <p>上传 PDF、Markdown、TXT、Excel/CSV，本地解析为 Obsidian inbox 笔记，并继续生成学习材料。</p>
           <ul>
-            <li>Summary Digest 摘要笔记</li>
-            <li>Study Guide 学习讲义</li>
-            <li>Quiz / Flashcards 练习材料</li>
-            <li>Final Exam Review 期末复习包</li>
-            <li>Report / PDF 输出入口</li>
+            <li>轻量摘要草稿</li>
+            <li>学习指南草稿</li>
+            <li>测验题 / 闪卡草稿</li>
+            <li>完整期末复习包（推荐）</li>
+            <li>真正导出 PDF</li>
           </ul>
           <button class="route-btn" type="button">进入本地锻造</button>
         </article>
 
-        <article class="route-card notebook-card" data-route="notebook" tabindex="0" role="button" aria-label="进入 NotebookLM Bridge">
+        <article class="route-card notebook-card disabled-card" aria-disabled="true">
           <div class="route-icon">◇</div>
-          <p class="route-kicker">可选增强 · NotebookLM</p>
+          <p class="route-kicker">正在测试中 · 即将上线</p>
           <h2>NotebookLM Bridge</h2>
-          <p>连接 Google NotebookLM，检查登录状态，打开授权，并把生成结果回写到 Obsidian inbox。</p>
+          <p>NotebookLM 桥接功能正在做稳定性和隐私边界测试，当前发布版先关闭入口。</p>
           <ul>
-            <li>NotebookLM source-grounded Q&A</li>
-            <li>Quiz / Flashcards / Mind Map</li>
-            <li>Report / PDF / Audio Overview</li>
-            <li>人工确认后写回知识库</li>
+            <li>登录态安全测试中</li>
+            <li>Source 上传流程测试中</li>
+            <li>结果捕捉与人工确认流程测试中</li>
+            <li>即将上线，不影响本地 Agent Forge 主流程</li>
           </ul>
-          <button class="route-btn dark" type="button">进入 NotebookLM 桥接</button>
+          <button class="route-btn dark" type="button" disabled>正在测试中，即将上线</button>
         </article>
       </section>
 
 
 
-      <section class="control-dashboard" id="controlDashboard">
+      <section class="control-dashboard hidden-advanced" id="controlDashboard">
         <article class="panel dark-panel">
           <div class="panel-title light-title">
             <div>
@@ -78,24 +78,11 @@
           </div>
         </article>
 
-        <article class="panel dark-panel">
-          <div class="panel-title light-title">
-            <div>
-              <h3>Artifacts 生成记录</h3>
-              <span>每次生成都记录来源、引擎、保存位置</span>
-            </div>
-            <button id="refreshArtifactsBtn" class="small-btn" type="button">刷新</button>
-          </div>
-          <div id="artifactRegistry" class="artifact-registry">
-            <p class="muted-light">还没有生成记录。</p>
-          </div>
-        </article>
-
         <article class="panel dark-panel agent-prompt-panel">
           <div class="panel-title light-title">
             <div>
-              <h3>Agent Quick Start</h3>
-              <span>复制给 Claude Code / OpenClaw / Cursor / Codex，自动开始 Full Setup</span>
+              <h3>Agent 快速开始</h3>
+              <span>复制给 Claude Code / Cursor / Codex，自动开始完整配置</span>
             </div>
             <button id="copyAgentPromptBtn" class="small-btn" type="button">复制提示词</button>
           </div>
@@ -107,61 +94,220 @@
       <section class="flow-view" id="localView" hidden>
         <button class="back-btn" data-back type="button">← 返回路径选择</button>
 
-        <div class="flow-head local-head">
+        <div class="flow-head local-head workflow-hero">
           <div>
-            <p class="eyebrow">Local Forge</p>
-            <h2>本地生成，不出 Google。</h2>
-            <p>先上传资料生成基础 inbox 笔记，再按你勾选的动作生成 Summary、Study Guide、Quiz、Flashcards 或 PDF artifact。</p>
+            <p class="eyebrow">Agent Forge</p>
+            <h2>生成之后，再决定写不写进 Obsidian。</h2>
+            <p>Forge 的主流程不是把粗解析塞进你的知识库，而是先准备资料 → 让 Agent 生成高质量结果 → 你预览/编辑 → 手动保存到 Obsidian。</p>
           </div>
           <button id="openVaultBtn" class="ghost-btn" type="button">打开 Vault 文件夹</button>
         </div>
 
-        <div class="action-picker" id="localActions" aria-label="Local Forge output actions">
-          <label><input type="checkbox" value="summary" checked /> Summary</label>
-          <label><input type="checkbox" value="study-guide" checked /> Study Guide</label>
-          <label><input type="checkbox" value="quiz" /> Quiz</label>
-          <label><input type="checkbox" value="flashcards" /> Flashcards</label>
-          <label><input type="checkbox" value="final-exam-review" /> Final Exam Review</label>
-          <label><input type="checkbox" value="pdf" /> PDF</label>
-        </div>
+        <section class="workflow-strip" aria-label="Knowledge Forge 工作流程">
+          <article><span>1</span><strong>上传资料</strong><p>文件只作为 Agent 来源，不自动变成正式笔记。</p></article>
+          <article><span>2</span><strong>选择任务</strong><p>摘要、学习指南、测验题、闪卡或完整复习包。</p></article>
+          <article><span>3</span><strong>Agent 生成</strong><p>Claude/Codex 读取 source pack，生成真正有价值的内容。</p></article>
+          <article><span>4</span><strong>人工保存</strong><p>预览满意后，点击保存到 Obsidian inbox。</p></article>
+        </section>
+
+        <section class="task-board" aria-label="Agent Forge 任务卡片">
+          <div class="task-board-head">
+            <div>
+              <p class="eyebrow dark-eyebrow">选择任务</p>
+              <h3>正式输出走 Agent</h3>
+              <p>这些卡片会填充下方可编辑 Prompt。运行时会把 taskPrompt / customPrompt 发送给后端 Agent；轻量本地规则仅作为低质量 fallback。</p>
+            </div>
+            <label class="pdf-toggle pdf-toggle-strong"><input id="exportPdfToggle" type="checkbox" /> <span><strong>导出 PDF 文档</strong><small>基于 Agent 输出生成真实 PDF</small></span></label>
+          </div>
+          <div class="task-card-grid" id="localActions" aria-label="Agent Forge output tasks">
+            <button class="task-card" type="button" data-task="summary" aria-pressed="false">
+              <span class="task-icon">速</span>
+              <strong>速读摘要</strong>
+              <small>快速抓住主题、关键结论、证据与待确认问题，适合课前预习或会议前扫读。</small>
+            </button>
+            <button class="task-card" type="button" data-task="study-guide" aria-pressed="false">
+              <span class="task-icon">导</span>
+              <strong>学习指南</strong>
+              <small>整理概念地图、学习顺序、重点难点与复习计划，适合系统掌握一份资料。</small>
+            </button>
+            <button class="task-card" type="button" data-task="quiz" aria-pressed="false">
+              <span class="task-icon">测</span>
+              <strong>测验题</strong>
+              <small>生成单选/简答/应用题和答案解析，用来检查理解漏洞与考前自测。</small>
+            </button>
+            <button class="task-card" type="button" data-task="exam-practice" aria-pressed="false">
+              <span class="task-icon">题</span>
+              <strong>同类例题</strong>
+              <small>适合一次性上传很多 past papers / 期末题：分析题型规律，再生成相似但不同的新题。</small>
+            </button>
+            <button class="task-card" type="button" data-task="flashcards" aria-pressed="false">
+              <span class="task-icon">卡</span>
+              <strong>闪卡</strong>
+              <small>把术语、公式、流程和易错点拆成可导入复习系统的问答卡片。</small>
+            </button>
+            <button class="task-card selected" type="button" data-task="final-exam-review" aria-pressed="true">
+              <span class="task-icon">包</span>
+              <strong>完整复习包</strong>
+              <small>一次生成摘要、知识地图、P0/P1/P2、费曼解释、错题提醒、模拟题和闪卡。</small>
+            </button>
+            <button class="task-card" type="button" data-task="custom" aria-pressed="false">
+              <span class="task-icon">✎</span>
+              <strong>自定义任务</strong>
+              <small>从空白 Prompt 开始，适合生成论文提纲、报告、讲稿、代码解读或任意专门输出。</small>
+            </button>
+          </div>
+        </section>
+
+        <section class="prompt-panel panel">
+          <div class="panel-title">
+            <div>
+              <h3>Prompt 模板</h3>
+              <span>选择一个模板即可开始；你也可以继续手动修改。</span>
+            </div>
+          </div>
+          <div id="promptTemplateGrid" class="prompt-template-grid" aria-label="Prompt templates"></div>
+        </section>
+
+        <section class="prompt-panel panel">
+          <div class="panel-title">
+            <div>
+              <h3>可编辑 Prompt</h3>
+              <span id="taskPromptHint">已选择：完整复习包。你可以直接改写，运行时会发送给后端 Agent。</span>
+            </div>
+            <button id="resetPromptBtn" class="small-btn" type="button">恢复卡片默认 Prompt</button>
+          </div>
+          <textarea id="taskPromptTextarea" rows="12" spellcheck="false"></textarea>
+          <p class="prompt-note">正式输出由 Agent 阅读 source pack 后生成；本地轻量规则只用于 Agent 失败/不可用时的低质量 fallback，不作为最终答案依据。</p>
+        </section>
 
         <div class="upload-zone" id="dropzone">
           <div class="upload-mark">⇪</div>
           <h3>拖入文件开始锻造</h3>
+          <p>支持一次选择/拖入多个文件，适合批量上传 past papers、期末题、课程 PDF</p>
           <p>.pdf / .md / .txt / .xlsx / .xls / .csv / .docx</p>
           <button id="pickBtn" type="button">选择文件</button>
-          <input id="fileInput" type="file" hidden />
-          <small id="selectedFileName">尚未选择文件</small>
+          <input id="fileInput" type="file" multiple hidden />
+          <small id="selectedFileName">还没有选择文件</small>
         </div>
+
+        <section class="source-shelf panel" id="sourceShelf">
+          <div class="panel-title">
+            <div>
+              <h3>源文件</h3>
+              <span>上传后先进入 Forge Staging，不直接写入 Obsidian inbox</span>
+            </div>
+          </div>
+          <div id="fileCards" class="file-card-grid">
+            <p class="muted">还没有源文件。</p>
+          </div>
+          <div class="review-mode-box" id="reviewModeBox" hidden>
+            <strong>Agent 应该怎样处理这些文件？</strong>
+            <label><input type="radio" name="reviewMode" value="separate" /> 单独生成：每个文件生成一份详细复习包</label>
+            <label><input type="radio" name="reviewMode" value="fuse" checked /> 融合生成：把多个文件/多份试题合成一份综合分析</label>
+          </div>
+        </section>
+
+        <details class="review-workbench panel compact-review" id="reviewQueue">
+          <summary class="panel-title review-title-row">
+            <div>
+              <p class="eyebrow dark-eyebrow">Source staging</p>
+              <h3>高级：查看上传后的 source pack</h3>
+              <span>这里是给 Agent 使用的资料暂存区，不是最终写入 Obsidian 的内容。</span>
+            </div>
+            <button id="refreshReviewBtn" class="small-btn" type="button">刷新待审</button>
+          </summary>
+
+          <div class="review-layout">
+            <aside class="review-queue-list" aria-label="待审资料队列">
+              <div class="queue-head">
+                <strong>Staging Queue</strong>
+                <span id="reviewEmpty">等待上传</span>
+              </div>
+              <div id="reviewList" class="review-list">
+                <p class="muted">暂无待审资料。</p>
+              </div>
+            </aside>
+
+            <article class="review-desk" id="reviewDesk" hidden>
+              <div class="review-desk-head">
+                <div>
+                  <label for="reviewTitleInput">最终笔记标题</label>
+                  <input id="reviewTitleInput" type="text" placeholder="批准入库时使用这个标题" />
+                  <p id="reviewMeta" class="review-meta">选择左侧一份资料开始审查。</p>
+                </div>
+                <div class="review-actions">
+                  <button id="rejectReviewBtn" class="danger-btn" type="button">丢入炉渣</button>
+                  <button id="approveReviewBtn" class="route-btn mini" type="button">批准入库</button>
+                </div>
+              </div>
+
+              <div id="reviewSignals" class="review-signals"></div>
+
+              <div class="review-columns">
+                <section class="review-column source-column">
+                  <div class="column-head"><strong>01 原始来源</strong><span>快速判断是否垃圾</span></div>
+                  <div id="reviewSourcePreview" class="review-scroll muted">等待选择。</div>
+                </section>
+                <section class="review-column draft-column">
+                  <div class="column-head"><strong>02 AI 粗炼草稿</strong><span>看摘要、概念、风险</span></div>
+                  <div id="reviewDraftPreview" class="review-scroll muted">等待选择。</div>
+                </section>
+                <section class="review-column final-column">
+                  <div class="column-head"><strong>03 最终入库版本</strong><span>可编辑，批准后写入 inbox</span></div>
+                  <textarea id="reviewEditor" spellcheck="false" placeholder="最终 Markdown 会出现在这里"></textarea>
+                </section>
+              </div>
+            </article>
+          </div>
+        </details>
+
+        <section class="agent-control-panel panel" id="agentControlPanel">
+          <div>
+            <p class="eyebrow dark-eyebrow">Agent Runner</p>
+            <h3>选择本机 Agent</h3>
+            <p class="muted">上传完成后点击运行。推荐 Claude Code；OpenClaw / Codex 也可选。OpenClaw 会读取本地 source pack 路径，避免把大段内容塞进命令行。</p>
+          </div>
+          <div class="agent-runner-row">
+            <label for="agentEngineSelect">Agent</label>
+            <select id="agentEngineSelect">
+              <option value="claude" selected>Claude Code（推荐）</option>
+              <option value="openclaw">OpenClaw（本机主 Agent）</option>
+              <option value="codex">Codex CLI（稳定可选）</option>
+            </select>
+            <button id="runAgentBtn" class="route-btn mini" type="button" disabled>运行</button>
+            <button id="openTerminalBtn" class="ghost-btn mini" type="button" disabled>打开外部终端</button>
+          </div>
+          <div id="agentStatus" class="agent-status idle">等待上传</div>
+        </section>
+
+        <section class="agent-terminal panel" id="agentTerminal" hidden>
+          <div class="terminal-head">
+            <div>
+              <strong id="terminalTitle">执行日志</strong>
+              <span id="terminalSubtitle">等待运行</span>
+            </div>
+            <button id="clearTerminalBtn" class="small-btn" type="button">清空</button>
+          </div>
+          <pre id="terminalLog" class="terminal-log">执行内容会显示在这里。</pre>
+        </section>
 
         <div class="result-grid">
           <article class="panel result-panel">
             <div class="panel-title">
               <div>
-                <h3>本次输出</h3>
-                <span id="selectedActions">Summary / Study Guide</span>
+                <h3>生成结果</h3>
+                <span id="selectedActions">等待上传</span>
               </div>
-              <button id="runSelectedActionsBtn" class="small-btn accent" type="button" disabled>生成勾选动作</button>
+              <button id="runSelectedActionsBtn" class="small-btn accent hidden-run-btn" type="button" disabled hidden>运行</button>
             </div>
             <div id="summary" class="result-body muted">等待上传...</div>
             <div id="artifacts" class="artifact-list"></div>
             <div id="fields"></div>
-            <details>
-              <summary>原始 JSON</summary>
+            <details class="debug-details">
+              <summary>调试信息</summary>
               <pre id="result">等待上传...</pre>
             </details>
           </article>
-
-          <aside class="panel">
-            <div class="panel-title">
-              <div>
-                <h3>Inbox</h3>
-                <span>最近生成/导入</span>
-              </div>
-              <button id="refreshInboxBtn" class="small-btn" type="button">刷新</button>
-            </div>
-            <div id="inboxList" class="inbox-list"></div>
-          </aside>
         </div>
       </section>
 
@@ -192,7 +338,7 @@
           <div class="workflow-steps">
             <article><strong>1. 打开 NotebookLM</strong><p>点击连接按钮或访问 notebooklm.google.com，用普通 Chrome 完成登录。</p></article>
             <article><strong>2. 上传资料 / 创建 Notebook</strong><p>用户在 NotebookLM 里手动上传 PDF、网页或课程资料，避免自动化登录风险。</p></article>
-            <article><strong>3. 生成输出</strong><p>在 NotebookLM 里生成 Summary、Study Guide、FAQ、Quiz、Audio Overview 等。</p></article>
+            <article><strong>3. 生成输出</strong><p>在 NotebookLM 里生成摘要、学习指南、常见问答、测验题、音频概览等。</p></article>
             <article><strong>4. 回到 Knowledge Forge</strong><p>粘贴 notebook/source 链接或结果文本，后续由 Python bridge 捕捉并写入 Obsidian。</p></article>
           </div>
         </div>
@@ -200,39 +346,40 @@
 
         <div class="notebook-demo-grid">
           <article class="panel">
-            <h3>1. 选择输出动作</h3>
+            <h3>1. 选择要记录的 NotebookLM 输出类型</h3>
+            <p class="muted">这些选项不会自动替你操作 Google。当前稳定模式是：你在 NotebookLM 里生成内容，Forge 负责把结果整理、登记并写回 Obsidian。</p>
             <div class="action-picker vertical" id="notebookActions" aria-label="NotebookLM output actions">
-              <label><input type="checkbox" value="summary" checked /> Summary</label>
-              <label><input type="checkbox" value="study-guide" checked /> Study Guide</label>
-              <label><input type="checkbox" value="quiz" /> Quiz</label>
-              <label><input type="checkbox" value="flashcards" /> Flashcards</label>
-              <label><input type="checkbox" value="mind-map" /> Mind Map</label>
-              <label><input type="checkbox" value="pdf" /> PDF</label>
+              <label><input type="checkbox" value="summary" checked /> 摘要 / Summary</label>
+              <label><input type="checkbox" value="study-guide" checked /> 学习指南 / Study Guide</label>
+              <label><input type="checkbox" value="quiz" /> 测验题 / Quiz</label>
+              <label><input type="checkbox" value="flashcards" /> 闪卡 / Flashcards</label>
+              <label><input type="checkbox" value="mind-map" /> 思维导图文本 / Mind Map</label>
+              <label><input type="checkbox" value="pdf" /> PDF/报告记录</label>
             </div>
             <div class="notebook-link-box">
-              <label for="notebookLink">Notebook / source link</label>
+              <label for="notebookLink">Notebook / source 链接</label>
               <input id="notebookLink" type="url" placeholder="粘贴 NotebookLM notebook 链接（可选）" />
             </div>
-            <button id="writeNotebookDemoBtn" class="route-btn dark full" type="button">写入示例 Digest 到 Inbox</button>
+            <button id="writeNotebookDemoBtn" class="route-btn dark full" type="button">写入示例记录到 Inbox</button>
           </article>
 
           <article class="panel capture-panel">
             <h3>2. 粘贴 NotebookLM 输出</h3>
-            <p class="muted">在 NotebookLM 生成 Summary / Study Guide / FAQ / Flashcards 后，复制结果粘贴到这里，一键写入 Obsidian inbox。</p>
+            <p class="muted">在 NotebookLM 生成摘要、学习指南、常见问答或闪卡后，复制结果粘贴到这里，一键写入 Obsidian inbox。</p>
             <div class="notebook-link-box">
               <label for="notebookCaptureTitle">Artifact 标题</label>
-              <input id="notebookCaptureTitle" type="text" placeholder="例如：Transformer Study Guide - NotebookLM" />
+              <input id="notebookCaptureTitle" type="text" placeholder="例如：Transformer 学习指南 - NotebookLM" />
             </div>
             <div class="notebook-link-box">
               <label for="notebookOutputType">输出类型</label>
               <select id="notebookOutputType">
-                <option value="summary">Summary</option>
-                <option value="study-guide">Study Guide</option>
-                <option value="faq">FAQ</option>
-                <option value="flashcards">Flashcards</option>
-                <option value="quiz">Quiz</option>
-                <option value="briefing-doc">Briefing Doc</option>
-                <option value="other">Other</option>
+                <option value="summary">摘要</option>
+                <option value="study-guide">学习指南</option>
+                <option value="faq">常见问答</option>
+                <option value="flashcards">闪卡</option>
+                <option value="quiz">测验题</option>
+                <option value="briefing-doc">简报文档</option>
+                <option value="other">其他</option>
               </select>
             </div>
             <textarea id="notebookCaptureText" rows="11" placeholder="把 NotebookLM 生成的内容粘贴到这里..."></textarea>
@@ -240,13 +387,13 @@
           </article>
 
           <article class="panel">
-            <h3>3. 工作流预览</h3>
+            <h3>3. 当前功能状态</h3>
             <ol class="flow-list">
-              <li>检查 notebooklm-py 与 Google 登录态。</li>
-              <li>选择或创建 NotebookLM notebook。</li>
-              <li>人工确认 source 上传范围。</li>
-              <li>调用 NotebookLM 生成材料。</li>
-              <li>Agent 二次整理成 Markdown/PDF，并写入 Obsidian inbox。</li>
+              <li><strong>已可用：</strong>检查 notebooklm-py / 登录态。</li>
+              <li><strong>已可用：</strong>打开 NotebookLM 登录入口。</li>
+              <li><strong>已可用：</strong>粘贴 NotebookLM 输出并写入 Obsidian inbox。</li>
+              <li><strong>已可用：</strong>写入示例记录，测试 Obsidian 回写链路。</li>
+              <li><strong>暂不做全自动：</strong>自动上传 source / 自动创建 notebook / 自动读取 Google 结果，先保持手动确认，避免登录态和隐私风险。</li>
             </ol>
             <div id="notebookActionResult" class="action-result muted">还没有执行 NotebookLM 动作。</div>
           </article>

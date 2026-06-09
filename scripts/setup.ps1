@@ -45,16 +45,20 @@ if (-not (Test-Path 'knowledge-forge.config.json')) {
 
 if ($NotebookLM) {
   if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    Write-Host "Python not found. Skipping NotebookLM Python setup." -ForegroundColor Yellow
+    Write-Host "Python not found. Skipping NotebookLM Python setup. Local Forge still works." -ForegroundColor Yellow
   } else {
-    if (-not (Test-Path '.venv-notebooklm\Scripts\python.exe')) {
-      Write-Host "Creating NotebookLM Python venv..." -ForegroundColor Cyan
-      python -m venv .venv-notebooklm
+    try {
+      if (-not (Test-Path '.venv-notebooklm\Scripts\python.exe')) {
+        Write-Host "Creating NotebookLM Python venv..." -ForegroundColor Cyan
+        python -m venv .venv-notebooklm
+      }
+      Write-Host "Installing notebooklm-py..." -ForegroundColor Cyan
+      .\.venv-notebooklm\Scripts\python.exe -m pip install -U pip
+      .\.venv-notebooklm\Scripts\python.exe -m pip install "notebooklm-py[browser]"
+      Write-Host "NotebookLM CLI installed. Login is manual: .\.venv-notebooklm\Scripts\notebooklm.exe login --browser chrome --fresh" -ForegroundColor Yellow
+    } catch {
+      Write-Host "NotebookLM setup failed, but Local Forge still works: $($_.Exception.Message)" -ForegroundColor Yellow
     }
-    Write-Host "Installing notebooklm-py..." -ForegroundColor Cyan
-    .\.venv-notebooklm\Scripts\python.exe -m pip install -U pip
-    .\.venv-notebooklm\Scripts\python.exe -m pip install "notebooklm-py[browser]"
-    Write-Host "NotebookLM CLI installed. Login is manual: .\.venv-notebooklm\Scripts\notebooklm.exe login --browser chrome --fresh" -ForegroundColor Yellow
   }
 }
 

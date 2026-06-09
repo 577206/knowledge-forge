@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import matter from 'gray-matter';
 import * as XLSX from 'xlsx';
+import mammoth from 'mammoth';
 import { DEFAULT_VAULT_PATH } from './config.js';
 
 const require = createRequire(import.meta.url);
@@ -318,10 +319,43 @@ export async function parseSpreadsheet(file) {
   return parsed;
 }
 
+export async function parseDocx(file) {
+  const title = path.parse(file.originalName).name;
+  try {
+    const result = await mammoth.convertToMarkdown({ path: file.path });
+    const markdown = String(result.value || '').trim();
+    const parsed = {
+      kind: 'document',
+      parser: 'mammoth-docx',
+      title,
+      markdown: markdown || `# ${title}\n\n> DOCX ingested, but no body text was extracted. Please check whether the file is empty or protected.`,
+      metadata: {
+        originalName: file.originalName,
+        mimeType: file.mimeType,
+        size: file.size,
+        warnings: result.messages?.map((message) => message.message).filter(Boolean) || [],
+      },
+    };
+    parsed.analysis = summarizeDocument(parsed);
+    return parsed;
+  } catch (error) {
+    const parsed = {
+      kind: 'document',
+      parser: 'docx-placeholder',
+      title,
+      markdown: `# ${title}\n\n> DOCX ingestion failed: ${error.message}\n\n- [ ] Check whether the file is encrypted or damaged\n- [ ] Try exporting it as PDF or Markdown and upload again`,
+      metadata: { originalName: file.originalName, mimeType: file.mimeType, size: file.size, note: error.message },
+    };
+    parsed.analysis = summarizeDocument(parsed);
+    return parsed;
+  }
+}
+
 export async function parseUploadedFile(file) {
   const ext = path.extname(file.originalName).toLowerCase();
   if (ext === '.xlsx' || ext === '.xls' || ext === '.csv') return parseSpreadsheet(file);
   if (ext === '.pdf') return parsePdf(file);
+  if (ext === '.docx') return parseDocx(file);
   return parseTextLike(file);
 }
 
@@ -627,6 +661,225 @@ ${sheetSections}
 `;
 }
 
+function normalizeForChunking(markdown = '') {
+  return String(markdown || '')
+    .replace(/^---[\n\r][\s\S]*?[\n\r]---\s*/g, '')
+    .replace(/\r\n/g, '\n')
+    .trim();
+}
+
+export function chunkMarkdownForAgent(markdown = '', options = {}) {
+  const maxChars = options.maxChars || 3800;
+  const overlapChars = options.overlapChars || 350;
+  const clean = normalizeForChunking(markdown);
+  if (!clean) return [];
+  const questionSections = clean.split(/(?=^(?:Question|Q)\s*\d+[\).:\s]|^第\s*\d+\s*[题問]|^\d+\s*[\.、)]\s+)/gim).map((part) => part.trim()).filter(Boolean);
+  const headingSections = clean.split(/(?=^#{1,3}\s+)/gm).map((part) => part.trim()).filter(Boolean);
+  const sections = questionSections.length > headingSections.length ? questionSections : headingSections;
+  const questionMode = sections === questionSections && questionSections.length > 1;
+  const chunks = [];
+  let buffer = '';
+
+  function pushBuffer() {
+    const text = buffer.trim();
+    if (!text) return;
+    chunks.push({
+      id: `chunk-${String(chunks.length + 1).padStart(3, '0')}`,
+      text,
+      chars: text.length,
+      heading: (text.match(/^#{1,3}\s+(.+)$/m)?.[1] || text.match(/^((?:Question|Q)\s*\d+[^\n]*|第\s*\d+\s*[题問][^\n]*|\d+\s*[\.、)]\s+[^\n]*)/im)?.[1] || `Chunk ${chunks.length + 1}`).trim(),
+    });
+    buffer = text.slice(Math.max(0, text.length - overlapChars));
+  }
+
+  for (const section of (sections.length ? sections : [clean])) {
+    if (questionMode && section.length <= maxChars) {
+      if (buffer.trim()) pushBuffer();
+      buffer = section;
+      pushBuffer();
+      buffer = '';
+      continue;
+    }
+    if ((buffer + '\n\n' + section).length <= maxChars) {
+      buffer = [buffer, section].filter(Boolean).join('\n\n');
+      continue;
+    }
+    if (buffer.trim()) pushBuffer();
+    if (section.length <= maxChars) {
+      buffer = section;
+      continue;
+    }
+    const paragraphs = section.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+    for (const paragraph of paragraphs) {
+      if ((buffer + '\n\n' + paragraph).length > maxChars && buffer.trim()) pushBuffer();
+      if (paragraph.length <= maxChars) {
+        buffer = [buffer, paragraph].filter(Boolean).join('\n\n');
+      } else {
+        for (let i = 0; i < paragraph.length; i += maxChars - overlapChars) {
+          const slice = paragraph.slice(i, i + maxChars);
+          if (buffer.trim()) pushBuffer();
+          buffer = slice;
+        }
+      }
+    }
+  }
+  if (buffer.trim()) pushBuffer();
+  return chunks.map((chunk, index) => ({ ...chunk, index: index + 1, total: chunks.length }));
+}
+
+function generateAgentInstruction(parsed, noteRelativePath, chunkPaths = []) {
+  const title = parsed.title || 'Untitled';
+  const actions = [
+    'Read manifest.json and every chunks/*.md file first. Do not rely only on the short summary.',
+    'Produce a final-exam-review style output: core summary, knowledge map, P0/P1/P2 exam points, Feynman explanations, common mistakes, mock questions, and flashcards.',
+    'Ground important claims in chunk ids. If something is uncertain, mark it as NEEDS_SOURCE_REVIEW. Do not invent facts.',
+    'If the source is Excel/CSV, explain fields, business type, and risks first. Do not invent payroll/finance/medicine formulas.',
+    'Write the final result as Markdown so it can be saved to Obsidian or handed to OpenClaw / Claude Code / Cursor.',
+  ];
+  return [
+    `# Agent Task - ${title}`,
+    '',
+    '> This Knowledge Forge agent pack is generated for agent-readable ingestion: files are parsed into Markdown chunks so an agent can read and synthesize them directly.',
+    '',
+    '## Source',
+    `- Inbox note: ${noteRelativePath}`,
+    `- Parser: ${parsed.parser}`,
+    `- Kind: ${parsed.kind}`,
+    '',
+    '## Read order',
+    '- 1. manifest.json',
+    ...chunkPaths.map((chunkPath, index) => `- ${index + 2}. ${chunkPath}`),
+    '',
+    '## Required output',
+    ...actions.map((item, index) => `${index + 1}. ${item}`),
+    '',
+    '## Final Exam Review Output Template',
+    '',
+    '```markdown',
+    `# Final Exam Review Pack - ${title}`,
+    '',
+    '## 0. One-sentence overview',
+    '## 1. Core summary',
+    '## 2. Knowledge map / chapter structure',
+    '## 3. P0/P1/P2 exam points',
+    '## 4. Key concepts in Feynman style',
+    '## 5. Formulas / definitions / methods / examples',
+    '## 6. Common mistakes and counter-intuitive points',
+    '## 7. Three-pass review plan',
+    '## 8. Mock questions',
+    '## 9. Flashcards',
+    '## 10. Open questions / needs review',
+    '```',
+    '',
+    '## Prompt for OpenClaw / Claude Code',
+    '',
+    '```text',
+    `Read this Knowledge Forge agent pack from the current folder. Follow Required output. Use the chunks as source evidence, cite chunk ids, mark uncertainty as NEEDS_SOURCE_REVIEW, and do not invent facts.`,
+    '```',
+  ].join('\n');
+}
+
+export async function writeAgentPack(parsed, notePath, vaultPath = DEFAULT_VAULT_PATH) {
+  const safeTitle = slugify(parsed.title);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const packDir = path.join(vaultPath, '.knowledge-forge', 'agent-packs', `${stamp}-${safeTitle}`);
+  const chunksDir = path.join(packDir, 'chunks');
+  await fs.mkdir(chunksDir, { recursive: true });
+
+  const sourceMarkdown = parsed.kind === 'data'
+    ? generateDataNote(parsed, [], [])
+    : parsed.markdown || '';
+  const chunks = chunkMarkdownForAgent(sourceMarkdown);
+  if (!chunks.length) {
+    chunks.push({
+      id: 'chunk-001',
+      index: 1,
+      total: 1,
+      heading: parsed.title || 'Fallback source metadata',
+      chars: String(sourceMarkdown || '').length,
+      text: [
+        `# ${parsed.title || 'Untitled source'}`,
+        '',
+        '> Knowledge Forge could not extract enough body text from this file. The Agent should still review the metadata below and ask the user to provide a clearer/exported version if needed.',
+        '',
+        `- Original file: ${parsed.metadata?.originalName || 'unknown'}`,
+        `- Parser: ${parsed.parser || 'unknown'}`,
+        `- MIME type: ${parsed.metadata?.mimeType || 'unknown'}`,
+        `- Size: ${parsed.metadata?.size || 0} bytes`,
+        `- Note: ${parsed.metadata?.note || parsed.metadata?.warnings?.join('; ') || 'No additional parser note'}`,
+      ].join('\n'),
+    });
+  }
+  const chunkPaths = [];
+  for (const chunk of chunks) {
+    const fileName = `${chunk.id}.md`;
+    const fullPath = path.join(chunksDir, fileName);
+    const content = [
+      `---`,
+      `title: ${JSON.stringify(`${parsed.title} / ${chunk.id}`)}`,
+      `type: agent-chunk`,
+      `source: ${JSON.stringify(parsed.metadata?.originalName || parsed.title)}`,
+      `chunk_id: ${chunk.id}`,
+      `chunk_index: ${chunk.index}`,
+      `chunk_total: ${chunk.total}`,
+      `---`,
+      '',
+      `# ${parsed.title} / ${chunk.id}`,
+      '',
+      `> Heading: ${chunk.heading}`,
+      '',
+      chunk.text,
+      '',
+    ].join('\n');
+    await fs.writeFile(fullPath, content, 'utf8');
+    chunkPaths.push(`chunks/${fileName}`);
+  }
+
+  const noteRelativePath = path.relative(vaultPath, notePath).replaceAll('\\', '/');
+  const instruction = generateAgentInstruction(parsed, noteRelativePath, chunkPaths);
+  const instructionPath = path.join(packDir, 'AGENT_TASK.md');
+  await fs.writeFile(instructionPath, instruction, 'utf8');
+
+  const manifest = {
+    id: crypto.randomUUID(),
+    createdAt: nowIso(),
+    type: 'agent-pack',
+    title: parsed.title,
+    kind: parsed.kind,
+    parser: parsed.parser,
+    source: parsed.metadata?.originalName,
+    notePath: noteRelativePath,
+    chunking: {
+      strategy: 'markdown-heading-question-paragraph-chunks-v1',
+      maxChars: 3800,
+      overlapChars: 350,
+      chunkCount: chunks.length,
+      rationale: 'Agent-friendly chunking for OpenClaw / Claude Code: split by exam question markers or Markdown headings first, then paragraph/hard split when needed, with small overlap for context continuity.',
+    },
+    files: {
+      instruction: 'AGENT_TASK.md',
+      chunks: chunkPaths,
+    },
+    recommendedAgents: ['OpenClaw', 'Claude Code', 'Cursor', 'Codex'],
+    recommendedOutput: 'final-exam-review-markdown',
+    safety: {
+      localFirst: true,
+      autoAgentExecution: false,
+      note: 'This version generates an agent-readable pack and prompt, but does not auto-launch external agents. Auto execution requires explicit user confirmation.',
+    },
+  };
+  const manifestPath = path.join(packDir, 'manifest.json');
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+  return {
+    packDir,
+    manifestPath,
+    instructionPath,
+    chunkCount: Math.max(chunks.length, 1),
+    manifest,
+    instruction,
+  };
+}
+
 export async function writeToVault(parsed, vaultPath = DEFAULT_VAULT_PATH) {
   await ensureVaultDirs(vaultPath);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -638,6 +891,7 @@ export async function writeToVault(parsed, vaultPath = DEFAULT_VAULT_PATH) {
   const content = parsed.kind === 'data' ? generateDataNote(parsed, linkCandidates, conceptCandidates) : generateDocumentNote(parsed, linkCandidates, conceptCandidates);
   await fs.writeFile(notePath, content, 'utf8');
 
+  const agentPack = await writeAgentPack(parsed, notePath, vaultPath);
   const manifest = {
     id: crypto.randomUUID(),
     createdAt: nowIso(),
@@ -649,10 +903,99 @@ export async function writeToVault(parsed, vaultPath = DEFAULT_VAULT_PATH) {
     analysis: parsed.analysis,
     linkCandidates,
     conceptCandidates,
+    agentPack: {
+      packDir: agentPack.packDir,
+      manifestPath: agentPack.manifestPath,
+      instructionPath: agentPack.instructionPath,
+      chunkCount: agentPack.chunkCount,
+      recommendedAgents: agentPack.manifest.recommendedAgents,
+    },
   };
   const manifestPath = path.join(vaultPath, '.knowledge-forge', `${stamp}-${safeTitle}.json`);
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
-  return { notePath, manifestPath, content, linkCandidates, conceptCandidates };
+  return { notePath, manifestPath, content, linkCandidates, conceptCandidates, agentPack };
+}
+
+export async function stageToVault(parsed, vaultPath = DEFAULT_VAULT_PATH) {
+  await ensureVaultDirs(vaultPath);
+  const stagingDir = path.join(vaultPath, '.knowledge-forge', 'staging');
+  await fs.mkdir(stagingDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const safeTitle = slugify(parsed.title);
+  const stagingId = `${stamp}-${safeTitle}`;
+  const draftPath = path.join(stagingDir, `${stagingId}.md`);
+  const linkCandidates = await matchVaultTopics(parsed, vaultPath);
+  const conceptCandidates = extractConceptCandidates(parsed);
+  const content = parsed.kind === 'data' ? generateDataNote(parsed, linkCandidates, conceptCandidates) : generateDocumentNote(parsed, linkCandidates, conceptCandidates);
+  await fs.writeFile(draftPath, content, 'utf8');
+
+  const agentPack = await writeAgentPack(parsed, draftPath, vaultPath);
+  const manifest = {
+    id: stagingId,
+    status: 'staged',
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+    kind: parsed.kind,
+    parser: parsed.parser,
+    title: parsed.title,
+    draftPath,
+    notePath: null,
+    source: parsed.metadata?.originalName,
+    analysis: parsed.analysis,
+    linkCandidates,
+    conceptCandidates,
+    agentPack: {
+      packDir: agentPack.packDir,
+      manifestPath: agentPack.manifestPath,
+      instructionPath: agentPack.instructionPath,
+      chunkCount: agentPack.chunkCount,
+      recommendedAgents: agentPack.manifest.recommendedAgents,
+    },
+  };
+  const manifestPath = path.join(stagingDir, `${stagingId}.json`);
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+  return { stagingId, draftPath, manifestPath, content, linkCandidates, conceptCandidates, agentPack, manifest };
+}
+
+export async function stageFile(file, options = {}) {
+  const parsed = await parseUploadedFile(file);
+  const result = await stageToVault(parsed, options.vaultPath || DEFAULT_VAULT_PATH);
+  return { parsed, ...result };
+}
+
+export async function approveStaged(stagingId, options = {}) {
+  const vaultPath = options.vaultPath || DEFAULT_VAULT_PATH;
+  const manifestPath = path.join(vaultPath, '.knowledge-forge', 'staging', `${stagingId}.json`);
+  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  if (manifest.status === 'approved' && manifest.notePath) return { manifest, manifestPath, notePath: manifest.notePath };
+  const content = typeof options.content === 'string' && options.content.trim() ? options.content : await fs.readFile(manifest.draftPath, 'utf8');
+  const safeTitle = slugify(options.title || manifest.title || 'Knowledge Forge Note');
+  const inboxDir = path.join(vaultPath, 'inbox');
+  await fs.mkdir(inboxDir, { recursive: true });
+  let notePath = path.join(inboxDir, `${todayStamp()} - ${safeTitle}.md`);
+  let suffix = 2;
+  while (await fs.stat(notePath).then(() => true).catch(() => false)) {
+    notePath = path.join(inboxDir, `${todayStamp()} - ${safeTitle}-${suffix}.md`);
+    suffix += 1;
+  }
+  await fs.writeFile(notePath, content, 'utf8');
+  manifest.status = 'approved';
+  manifest.updatedAt = nowIso();
+  manifest.notePath = notePath;
+  manifest.title = options.title || manifest.title;
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+  return { manifest, manifestPath, notePath, content };
+}
+
+export async function rejectStaged(stagingId, options = {}) {
+  const vaultPath = options.vaultPath || DEFAULT_VAULT_PATH;
+  const manifestPath = path.join(vaultPath, '.knowledge-forge', 'staging', `${stagingId}.json`);
+  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  manifest.status = 'rejected';
+  manifest.updatedAt = nowIso();
+  manifest.rejectReason = options.reason || '';
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf8');
+  return { manifest, manifestPath };
 }
 
 export async function ingestFile(file, options = {}) {

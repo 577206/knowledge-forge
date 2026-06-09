@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "knowledge-forge",
   "version": "0.1.0",
   "private": false,
@@ -21,7 +21,13 @@
     "dev": "node apps/api/server.js",
     "start": "node apps/api/server.js",
     "check": "node --check apps/api/server.js && node --check packages/ingestion-core/index.js && node --check packages/ingestion-core/config.js && node --check apps/web/app.js && node --check apps/web/graph.js",
-    "test": "echo no tests yet"
+    "doctor": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/doctor.ps1",
+    "setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1",
+    "configure": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/configure.ps1",
+    "start:ps": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start.ps1",
+    "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1",
+    "verify:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1 -Smoke -StartServer",
+    "test": "npm run check"
   },
   "dependencies": {
     "@opendocsg/pdf2md": "latest",

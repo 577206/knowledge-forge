@@ -2,33 +2,41 @@
 setlocal
 cd /d "%~dp0"
 
+echo [Knowledge Forge] Starting quick setup...
+
+where node >nul 2>nul
+if errorlevel 1 (
+  echo [Knowledge Forge] Node.js is required. Please install Node.js 20+ from https://nodejs.org/
+  pause
+  exit /b 1
+)
+
+where npm >nul 2>nul
+if errorlevel 1 (
+  echo [Knowledge Forge] npm is required. Please reinstall Node.js with npm.
+  pause
+  exit /b 1
+)
+
 if not exist node_modules (
   echo [Knowledge Forge] Installing dependencies...
   npm install
   if errorlevel 1 pause & exit /b 1
 )
 
-if not defined KF_VAULT_PATH (
-  if exist .env.local (
-    for /f "usebackq tokens=1,* delims==" %%A in (".env.local") do (
-      if /I "%%A"=="KF_VAULT_PATH" set "KF_VAULT_PATH=%%B"
-    )
-  )
+if not exist .env.local (
+  echo [Knowledge Forge] Creating .env.local with vault-demo...
+  copy .env.example .env.local >nul
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=(Resolve-Path '.\\vault-demo').Path; (Get-Content '.env.local') -replace '^KF_VAULT_PATH=.*', ('KF_VAULT_PATH=' + $p) | Set-Content '.env.local' -Encoding UTF8; New-Item -ItemType Directory -Force -Path (Join-Path $p 'inbox') | Out-Null"
 )
 
-if not defined KF_VAULT_PATH (
-  echo.
-  echo [Knowledge Forge] KF_VAULT_PATH is not configured.
-  echo Please edit .env.local and set your Obsidian vault path.
-  if not exist .env.local copy .env.example .env.local >nul
-  notepad .env.local
-  echo.
-  echo After saving .env.local, run start.bat again.
-  pause
-  exit /b 0
+if not exist knowledge-forge.config.json (
+  copy knowledge-forge.config.example.json knowledge-forge.config.json >nul
 )
 
-echo [Knowledge Forge] Vault: %KF_VAULT_PATH%
+echo [Knowledge Forge] Running doctor...
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\doctor.ps1
+
 echo [Knowledge Forge] Starting http://localhost:4177 ...
 start "Knowledge Forge" http://localhost:4177
 npm run dev
