@@ -539,6 +539,7 @@ function fileIcon(name = '') {
   const ext = String(name).split('.').pop().toLowerCase();
   if (ext === 'pdf') return 'PDF';
   if (['docx', 'doc'].includes(ext)) return 'DOC';
+  if (['pptx', 'ppt'].includes(ext)) return 'PPT';
   if (['xlsx', 'xls', 'csv'].includes(ext)) return 'XLS';
   if (['md', 'txt'].includes(ext)) return 'TXT';
   return 'FILE';
@@ -778,7 +779,7 @@ async function refreshInbox(notesFromUpload) {
         <strong>${escapeHtml(note.title)}</strong>
         <small>${escapeHtml(note.path)}</small>
         <span>${escapeHtml(formatTime(note.modifiedAt))} · ${Math.ceil(note.size / 1024)} KB</span>
-        <div class="inbox-actions"><button data-open-obsidian="${escapeHtml(note.path)}" type="button">Obsidian 打开</button><button data-open-folder="${escapeHtml(note.path)}" type="button">文件夹</button><button data-preview="${escapeHtml(note.path)}" type="button">预览</button></div>
+        <div class="inbox-actions"><button data-open-obsidian="${escapeHtml(note.path)}" type="button">Obsidian 打开</button><button data-promote-wiki="${escapeHtml(note.path)}" data-promote-title="${escapeHtml(note.title)}" type="button">晋升到 Wiki</button><button data-open-folder="${escapeHtml(note.path)}" type="button">文件夹</button><button data-preview="${escapeHtml(note.path)}" type="button">预览</button></div>
       </article>
     `).join('');
   } catch (error) {
@@ -806,6 +807,20 @@ async function previewNote(relativePath) {
   selectedFileName.textContent = `已选择 inbox 笔记：${data.note.title}`;
   showResult({ ok: true, kind: 'vault-note', title: data.note.title, noteRelativePath: data.note.path, obsidianUri: data.note.obsidianUri, noteContent: data.note.content, parsed: { markdown: data.note.content } });
   showView('local');
+}
+
+async function promoteToWiki(relativePath, title = '') {
+  const targetFolder = prompt('晋升到哪个 wiki 文件夹？', 'wiki/Forge');
+  if (!targetFolder) return null;
+  const res = await fetch('/api/vault/promote', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sourcePath: relativePath, targetFolder, title, mode: 'move' }),
+  });
+  const data = await res.json();
+  if (!res.ok || data.ok === false) throw new Error(data.error || '晋升失败');
+  await refreshInbox(data.recentInbox);
+  return data;
 }
 
 function showResult(data) {
@@ -1348,6 +1363,28 @@ inboxList?.addEventListener('click', async (event) => {
       await openObsidian(folderBtn.dataset.openFolder, 'folder');
     } catch (error) {
       health.textContent = `文件夹打开失败：${error.message}`;
+      health.className = 'status-dot offline';
+    }
+    return;
+  }
+  const promoteBtn = event.target.closest('[data-promote-wiki]');
+  if (promoteBtn) {
+    promoteBtn.disabled = true;
+    promoteBtn.textContent = '晋升中...';
+    try {
+      const data = await promoteToWiki(promoteBtn.dataset.promoteWiki, promoteBtn.dataset.promoteTitle || '');
+      if (data) {
+        health.textContent = `已晋升到 ${data.targetRelativePath}`;
+        health.className = 'status-dot online';
+        showResult({ ok: true, kind: 'promoted', title: data.targetRelativePath, noteRelativePath: data.targetRelativePath, obsidianUri: data.obsidianUri });
+      } else {
+        promoteBtn.disabled = false;
+        promoteBtn.textContent = '晋升到 Wiki';
+      }
+    } catch (error) {
+      promoteBtn.disabled = false;
+      promoteBtn.textContent = '晋升失败，重试';
+      health.textContent = `晋升失败：${error.message}`;
       health.className = 'status-dot offline';
     }
     return;

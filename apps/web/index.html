@@ -36,7 +36,7 @@
           <div class="route-icon">⚒</div>
           <p class="route-kicker">不连接 Google · 本地优先</p>
           <h2>Agent Forge</h2>
-          <p>上传 PDF、Markdown、TXT、Excel/CSV，本地解析为 Obsidian inbox 笔记，并继续生成学习材料。</p>
+          <p>上传 PDF、Word、PPT、Markdown、TXT、Excel/CSV，本地解析为 Obsidian inbox 笔记，并继续生成学习材料。</p>
           <ul>
             <li>轻量摘要草稿</li>
             <li>学习指南草稿</li>
@@ -47,18 +47,18 @@
           <button class="route-btn" type="button">进入本地锻造</button>
         </article>
 
-        <article class="route-card notebook-card disabled-card" aria-disabled="true">
+        <article class="route-card notebook-card" data-route="notebook" tabindex="0" role="button" aria-label="进入 NotebookLM Bridge">
           <div class="route-icon">◇</div>
-          <p class="route-kicker">正在测试中 · 即将上线</p>
+          <p class="route-kicker">可选增强 · 手动模式优先</p>
           <h2>NotebookLM Bridge</h2>
-          <p>NotebookLM 桥接功能正在做稳定性和隐私边界测试，当前发布版先关闭入口。</p>
+          <p>连接 NotebookLM 做 source-grounded 深度阅读；Forge 负责捕捉输出、写入 Obsidian inbox，并保留人工复核边界。</p>
           <ul>
-            <li>登录态安全测试中</li>
-            <li>Source 上传流程测试中</li>
-            <li>结果捕捉与人工确认流程测试中</li>
-            <li>即将上线，不影响本地 Agent Forge 主流程</li>
+            <li>检查本机 notebooklm-py 与登录状态</li>
+            <li>打开 NotebookLM 登录流程</li>
+            <li>粘贴捕捉 NotebookLM 输出</li>
+            <li>写入 Obsidian inbox，等待人工复核</li>
           </ul>
-          <button class="route-btn dark" type="button" disabled>正在测试中，即将上线</button>
+          <button class="route-btn dark" type="button">进入 NotebookLM Bridge</button>
         </article>
       </section>
 
@@ -107,7 +107,8 @@
           <article><span>1</span><strong>上传资料</strong><p>文件只作为 Agent 来源，不自动变成正式笔记。</p></article>
           <article><span>2</span><strong>选择任务</strong><p>摘要、学习指南、测验题、闪卡或完整复习包。</p></article>
           <article><span>3</span><strong>Agent 生成</strong><p>Claude/Codex 读取 source pack，生成真正有价值的内容。</p></article>
-          <article><span>4</span><strong>人工保存</strong><p>预览满意后，点击保存到 Obsidian inbox。</p></article>
+          <article><span>4</span><strong>保存到 Inbox</strong><p>满意后先保存到 Obsidian inbox，作为待复核草稿。</p></article>
+          <article><span>5</span><strong>晋升到 Wiki</strong><p>复核通过后点击“晋升到 Wiki”，移动到 wiki/ 下的长期知识库。</p></article>
         </section>
 
         <section class="task-board" aria-label="Agent Forge 任务卡片">
@@ -183,8 +184,8 @@
         <div class="upload-zone" id="dropzone">
           <div class="upload-mark">⇪</div>
           <h3>拖入文件开始锻造</h3>
-          <p>支持一次选择/拖入多个文件，适合批量上传 past papers、期末题、课程 PDF</p>
-          <p>.pdf / .md / .txt / .xlsx / .xls / .csv / .docx</p>
+          <p>支持一次选择/拖入多个文件，适合批量上传 past papers、期末题、课程 PDF、Word 文档和 PPT 课件</p>
+          <p>.pdf / .docx / .pptx / .md / .txt / .xlsx / .xls / .csv</p>
           <button id="pickBtn" type="button">选择文件</button>
           <input id="fileInput" type="file" multiple hidden />
           <small id="selectedFileName">还没有选择文件</small>
@@ -253,13 +254,26 @@
                   <div id="reviewDraftPreview" class="review-scroll muted">等待选择。</div>
                 </section>
                 <section class="review-column final-column">
-                  <div class="column-head"><strong>03 最终入库版本</strong><span>可编辑，批准后写入 inbox</span></div>
+                  <div class="column-head"><strong>03 最终入库版本</strong><span>可编辑，批准后先写入 inbox，复核后再晋升到 wiki</span></div>
                   <textarea id="reviewEditor" spellcheck="false" placeholder="最终 Markdown 会出现在这里"></textarea>
                 </section>
               </div>
             </article>
           </div>
         </details>
+
+        <section class="inbox-panel panel">
+          <div class="panel-title">
+            <div>
+              <h3>Obsidian Inbox 待复核区</h3>
+              <span>Inbox 不是最终知识库。先预览/打开检查，确认后再晋升到 wiki/。</span>
+            </div>
+            <button id="refreshInboxBtn" class="small-btn" type="button">刷新 Inbox</button>
+          </div>
+          <div id="inboxList" class="inbox-list">
+            <p class="muted">正在加载 inbox...</p>
+          </div>
+        </section>
 
         <section class="agent-control-panel panel" id="agentControlPanel">
           <div>

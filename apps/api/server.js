@@ -168,11 +168,15 @@ async function getCapabilities() {
     {
       id: 'notebooklm',
       label: 'NotebookLM Bridge',
-      status: 'disabled',
-      enabled: false,
+      status: config.features?.notebooklm === false ? 'disabled' : 'manual_ready',
+      enabled: config.features?.notebooklm !== false,
       recommended: false,
-      description: '正在测试中，即将上线。当前发布版先关闭 NotebookLM 入口，避免登录态和隐私边界不稳定。',
-      details: { message: 'Testing in progress. Coming soon.' },
+      description: '可选增强：NotebookLM 负责 source-grounded 深度阅读，Forge 负责捕捉输出、写入 Obsidian inbox 与后续 Agent 复核。默认手动模式优先，避免代管 Google 登录态。',
+      details: {
+        mode: 'manual-first',
+        implementedActions: ['auth-check', 'open-login', 'write-sample-digest', 'capture-paste'],
+        safety: 'Do not commit NotebookLM cookies/storage_state or Google credentials.',
+      },
     },
   ];
 }
@@ -223,6 +227,59 @@ async function readVaultNote(relativePath) {
   };
 }
 
+function addPromotionMetadata(content, { sourcePath, targetFolder }) {
+  const promotedAt = new Date().toISOString();
+  const extra = [
+    `promotedFrom: ${JSON.stringify(sourcePath)}`,
+    `promotedAt: ${JSON.stringify(promotedAt)}`,
+    `targetFolder: ${JSON.stringify(targetFolder)}`,
+  ].join('\n');
+  const normalized = String(content || '').replace(/^\ufeff/, '');
+  if (/^---\s*\n[\s\S]*?\n---\s*/.test(normalized)) {
+    return normalized.replace(/^---\s*\n/, `---\n${extra}\n`);
+  }
+  return `---\n${extra}\nstatus: wiki\n---\n\n${normalized}`;
+}
+
+async function promoteInboxNote({ sourcePath, targetFolder = 'wiki/Forge', title = '', mode = 'move' } = {}) {
+  if (!sourcePath) throw new Error('Missing sourcePath');
+  const sourceFull = safeVaultPath(sourcePath);
+  const sourceRel = toVaultRelative(sourceFull);
+  if (!sourceRel.startsWith('inbox/')) throw new Error('Only inbox notes can be promoted');
+  const stat = await fsp.stat(sourceFull);
+  if (!stat.isFile() || !sourceFull.toLowerCase().endsWith('.md')) throw new Error('Only markdown inbox notes can be promoted');
+
+  const safeFolder = String(targetFolder || 'wiki/Forge').replace(/^[/\\]+/, '');
+  if (!safeFolder.startsWith('wiki/')) throw new Error('targetFolder must be under wiki/');
+  const targetDir = safeVaultPath(safeFolder);
+  await fsp.mkdir(targetDir, { recursive: true });
+
+  const raw = await fsp.readFile(sourceFull, 'utf8');
+  const safeTitle = (title || path.basename(sourceFull, '.md'))
+    .replace(/^\d{4}-\d{2}-\d{2}\s+-\s+/, '')
+    .replace(/[\\/:*?"<>|]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 90) || 'Promoted Note';
+  let targetFull = path.join(targetDir, `${safeTitle}.md`);
+  let suffix = 2;
+  while (await fsp.stat(targetFull).then(() => true).catch(() => false)) {
+    targetFull = path.join(targetDir, `${safeTitle}-${suffix}.md`);
+    suffix += 1;
+  }
+
+  const content = addPromotionMetadata(raw, { sourcePath: sourceRel, targetFolder: safeFolder });
+  await fsp.writeFile(targetFull, content, 'utf8');
+  if (mode !== 'copy') {
+    const promotedDir = safeVaultPath('.knowledge-forge/promoted-inbox');
+    await fsp.mkdir(promotedDir, { recursive: true });
+    const archived = path.join(promotedDir, `${new Date().toISOString().replace(/[:.]/g, '-')}-${path.basename(sourceFull)}`);
+    await fsp.rename(sourceFull, archived);
+    return { mode: 'move', targetPath: targetFull, targetRelativePath: toVaultRelative(targetFull), archivedInboxPath: archived, archivedInboxRelativePath: toVaultRelative(archived), obsidianUri: makeObsidianOpenUri(targetFull) };
+  }
+  return { mode: 'copy', targetPath: targetFull, targetRelativePath: toVaultRelative(targetFull), sourcePath: sourceRel, obsidianUri: makeObsidianOpenUri(targetFull) };
+}
+
 function openLocalPath(targetPath) {
   const child = spawn('explorer.exe', [targetPath], { detached: true, stdio: 'ignore' });
   child.unref();
@@ -240,6 +297,22 @@ function revealLocalPath(targetPath) {
 
 function toPortablePath(targetPath) {
   return String(targetPath || '').replaceAll('\\', '/');
+}
+
+function repairPossiblyMojibakeFilename(filename = 'upload.bin') {
+  const base = path.basename(String(filename || 'upload.bin'));
+  if (!/[ÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖÙÚÛÜÝàáâãäåæçèéêëìíîïðñòóôõöùúûüýÿ]/.test(base)) return base;
+  try {
+    const repaired = Buffer.from(base, 'latin1').toString('utf8');
+    // Only accept the repair when it clearly turns mojibake into CJK text.
+    if (/[\u4e00-\u9fa5]/.test(repaired) && !repaired.includes('�')) return repaired;
+  } catch {}
+  return base;
+}
+
+function openProtocolUri(uri) {
+  const child = spawn('cmd.exe', ['/c', 'start', '', uri], { detached: true, stdio: 'ignore', windowsHide: true });
+  child.unref();
 }
 
 function makeObsidianOpenUri(targetPath) {
@@ -274,13 +347,12 @@ async function openObsidianPath(targetPath, preferredMethod = 'protocol') {
     // Obsidian's CLI reliably opens the vault; the UI can then follow the protocol URI.
     const child = spawn(executablePath, [DEFAULT_VAULT_PATH], { detached: true, stdio: 'ignore' });
     child.unref();
-    spawn('explorer.exe', [uri], { detached: true, stdio: 'ignore' }).unref();
+    openProtocolUri(uri);
     return { method: 'executable+protocol', opened: fullTargetPath, executablePath, obsidianUri: uri };
   }
 
   try {
-    const child = spawn('explorer.exe', [uri], { detached: true, stdio: 'ignore' });
-    child.unref();
+    openProtocolUri(uri);
     return { method: 'protocol', opened: fullTargetPath, obsidianUri: uri, executablePath };
   } catch {
     if (executablePath) {
@@ -846,7 +918,7 @@ function handleUpload(req, res) {
   let size = 0;
 
   busboy.on('file', (_fieldname, file, info) => {
-    originalName = info.filename || 'upload.bin';
+    originalName = repairPossiblyMojibakeFilename(info.filename || 'upload.bin');
     mimeType = info.mimeType || 'application/octet-stream';
     const safeName = `${Date.now()}-${path.basename(originalName).replace(/[\\/:*?"<>|]/g, '-')}`;
     const savePath = path.join(uploadDir, safeName);
@@ -920,30 +992,39 @@ function runNotebookLmAuthCheck() {
         return;
       }
 
-      execFile(notebookLmExe, ['auth', 'check', '--test', '--json'], { cwd: root, timeout: 30000 }, (error, stdout) => {
-        try {
-          const data = JSON.parse(stdout || '{}');
-          const connected = data.status === 'ok' && data.checks?.token_fetch === true;
+      execFile(notebookLmExe, ['list', '--json', '--limit', '1'], { cwd: root, timeout: 30000 }, (error, stdout, stderr) => {
+        if (!error) {
+          let notebooks = [];
+          try {
+            const parsed = JSON.parse(stdout || '[]');
+            notebooks = Array.isArray(parsed) ? parsed : (parsed.notebooks || []);
+          } catch {}
           resolve({
             installed: true,
-            connected,
-            status: connected ? 'connected' : 'needs_login',
-            message: connected ? 'NotebookLM is connected.' : 'NotebookLM login is required or expired.',
+            connected: true,
+            status: 'connected',
+            message: 'NotebookLM is connected.',
             checks: {
-              storage_exists: Boolean(data.checks?.storage_exists),
-              json_valid: Boolean(data.checks?.json_valid),
-              cookies_present: Boolean(data.checks?.cookies_present),
-              token_fetch: data.checks?.token_fetch === true,
+              list_notebooks: true,
+              notebookSampleCount: notebooks.length,
             },
           });
-        } catch {
+          return;
+        }
+
+        execFile(notebookLmExe, ['doctor'], { cwd: root, timeout: 30000 }, (doctorError, doctorStdout, doctorStderr) => {
+          const diagnostic = [stdout, stderr, doctorStdout, doctorStderr].filter(Boolean).join('\n').trim();
+          const needsLogin = /Authentication expired|invalid|accounts\.google\.com|login|re-authenticate/i.test(diagnostic);
           resolve({
             installed: true,
             connected: false,
-            status: 'error',
-            message: error?.message || 'Failed to parse notebooklm auth check output.',
+            status: needsLogin ? 'needs_login' : 'error',
+            message: needsLogin
+              ? 'NotebookLM login is installed but expired or invalid. Please re-login.'
+              : (error?.message || doctorError?.message || 'NotebookLM status check failed.'),
+            diagnostic: diagnostic.slice(0, 2000),
           });
-        }
+        });
       });
     });
   });
@@ -1279,8 +1360,14 @@ async function writeInboxArtifact(title, content, meta = {}) {
   const inboxDir = safeVaultPath('inbox');
   await fsp.mkdir(inboxDir, { recursive: true });
   const safeTitle = title.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 90) || 'Knowledge Forge Artifact';
-  const fileName = `${new Date().toISOString().slice(0, 10)} - ${safeTitle}.md`;
-  const fullPath = path.join(inboxDir, fileName);
+  let fileName = `${new Date().toISOString().slice(0, 10)} - ${safeTitle}.md`;
+  let fullPath = path.join(inboxDir, fileName);
+  let suffix = 2;
+  while (await fsp.stat(fullPath).then(() => true).catch(() => false)) {
+    fileName = `${new Date().toISOString().slice(0, 10)} - ${safeTitle}-${suffix}.md`;
+    fullPath = path.join(inboxDir, fileName);
+    suffix += 1;
+  }
   const body = `---\ntitle: ${JSON.stringify(title)}\ntype: generated-artifact\nstatus: inbox\ncreated: ${new Date().toISOString()}\ngenerator: knowledge-forge-local\n---\n\n${content}\n`;
   await fsp.writeFile(fullPath, body, 'utf8');
   const artifactPath = toVaultRelative(fullPath);
@@ -1488,6 +1575,20 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 400, { error: error.message });
     }
   }
+  if (req.method === 'POST' && url.pathname === '/api/vault/promote') {
+    try {
+      const body = await readJsonBody(req);
+      const promoted = await promoteInboxNote({
+        sourcePath: body.sourcePath || body.path,
+        targetFolder: body.targetFolder || 'wiki/Forge',
+        title: body.title,
+        mode: body.mode || 'move',
+      });
+      return sendJson(res, 200, { ok: true, ...promoted, recentInbox: await listInbox(20) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message });
+    }
+  }
   if (req.method === 'GET' && url.pathname === '/api/staging') {
     try {
       const limit = Number(url.searchParams.get('limit') || 30);
@@ -1688,18 +1789,22 @@ const server = http.createServer(async (req, res) => {
     }
   }
   if (req.method === 'POST' && url.pathname === '/api/notebooklm/action') {
-    return sendJson(res, 503, { ok: false, error: 'NotebookLM Bridge 正在测试中，即将上线。当前发布版暂不开放。' });
+    return handleNotebookLmAction(req, res);
   }
   if (req.method === 'GET' && url.pathname === '/api/notebooklm/status') {
+    const status = await runNotebookLmAuthCheck();
     return sendJson(res, 200, {
       ok: true,
-      installed: false,
-      connected: false,
-      status: 'testing',
-      message: 'NotebookLM Bridge 正在测试中，即将上线。当前发布版暂不开放。',
-      actions: [],
+      ...status,
+      mode: 'manual-first',
+      message: status.connected
+        ? 'NotebookLM Bridge 可用。建议仍采用手动复核后写回 Obsidian。'
+        : status.message,
+      actions: getNotebookLmActions(status.connected),
       safety: {
-        unavailableInThisRelease: true,
+        localOnly: true,
+        neverCommitAuth: true,
+        manualCaptureRecommended: true,
       },
     });
   }

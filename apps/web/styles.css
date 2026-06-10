@@ -915,7 +915,7 @@ summary { color: #2563eb; cursor: pointer; font-weight: 850; }
 .workflow-hero h2 { text-wrap: balance; }
 .workflow-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 12px;
   padding: 14px;
   border: 1px solid rgba(245, 158, 11, .22);
@@ -985,7 +985,7 @@ summary { color: #2563eb; cursor: pointer; font-weight: 850; }
   filter: saturate(.72);
 }
 .disabled-card::before {
-  content: "正在测试�?;
+  content: "正在测试�?;
   position: absolute;
   top: 22px;
   right: 22px;

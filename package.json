@@ -20,7 +20,8 @@
   "scripts": {
     "dev": "node apps/api/server.js",
     "start": "node apps/api/server.js",
-    "check": "node --check apps/api/server.js && node --check packages/ingestion-core/index.js && node --check packages/ingestion-core/config.js && node --check apps/web/app.js && node --check apps/web/graph.js",
+    "mcp": "node apps/mcp/server.js",
+    "check": "node --check apps/api/server.js && node --check apps/mcp/server.js && node --check packages/ingestion-core/index.js && node --check packages/ingestion-core/config.js && node --check apps/web/app.js && node --check apps/web/graph.js",
     "doctor": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/doctor.ps1",
     "setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1",
     "configure": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/configure.ps1",
@@ -33,8 +34,8 @@
     "@opendocsg/pdf2md": "latest",
     "busboy": "latest",
     "gray-matter": "latest",
+    "jszip": "^3.10.1",
     "mammoth": "latest",
     "xlsx": "latest"
   }
 }
-

@@ -29,6 +29,8 @@ export const SUPPORTED_EXTENSIONS = new Set([
   '.md',
   '.markdown',
   '.pdf',
+  '.docx',
+  '.pptx',
   '.xlsx',
   '.xls',
   '.csv',

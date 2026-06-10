@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import matter from 'gray-matter';
 import * as XLSX from 'xlsx';
 import mammoth from 'mammoth';
+import JSZip from 'jszip';
 import { DEFAULT_VAULT_PATH } from './config.js';
 
 const require = createRequire(import.meta.url);
@@ -351,11 +352,73 @@ export async function parseDocx(file) {
   }
 }
 
+export async function parsePptx(file) {
+  const title = path.parse(file.originalName).name;
+  try {
+    const buffer = await fs.readFile(file.path);
+    const zip = await JSZip.loadAsync(buffer);
+    const slideNames = Object.keys(zip.files)
+      .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
+      .sort((a, b) => Number(a.match(/slide(\d+)\.xml/i)?.[1] || 0) - Number(b.match(/slide(\d+)\.xml/i)?.[1] || 0));
+    const slides = [];
+    for (const slideName of slideNames) {
+      const xml = await zip.files[slideName].async('string');
+      const texts = Array.from(xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g))
+        .map((m) => m[1]
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&apos;/g, "'")
+          .trim())
+        .filter(Boolean);
+      const slideNo = Number(slideName.match(/slide(\d+)\.xml/i)?.[1] || slides.length + 1);
+      slides.push({ slideNo, texts });
+    }
+    const markdown = [
+      `# ${title}`,
+      '',
+      ...slides.flatMap((slide) => [
+        `## Slide ${slide.slideNo}`,
+        '',
+        ...(slide.texts.length ? slide.texts.map((text) => `- ${text}`) : ['> No extractable text found on this slide.']),
+        '',
+      ]),
+    ].join('\n').trim();
+    const parsed = {
+      kind: 'document',
+      parser: 'pptx-basic-xml',
+      title,
+      markdown: markdown || `# ${title}\n\n> PPTX ingested, but no slide text was extracted.`,
+      metadata: {
+        originalName: file.originalName,
+        mimeType: file.mimeType,
+        size: file.size,
+        slideCount: slides.length,
+        note: 'Basic PPTX text extraction from ppt/slides/slide*.xml. Images and layout are not yet parsed.',
+      },
+    };
+    parsed.analysis = summarizeDocument(parsed);
+    return parsed;
+  } catch (error) {
+    const parsed = {
+      kind: 'document',
+      parser: 'pptx-placeholder',
+      title,
+      markdown: `# ${title}\n\n> PPTX ingestion failed: ${error.message}\n\n- [ ] Check whether the file is encrypted or damaged\n- [ ] Try exporting it as PDF and upload again`,
+      metadata: { originalName: file.originalName, mimeType: file.mimeType, size: file.size, note: error.message },
+    };
+    parsed.analysis = summarizeDocument(parsed);
+    return parsed;
+  }
+}
+
 export async function parseUploadedFile(file) {
   const ext = path.extname(file.originalName).toLowerCase();
   if (ext === '.xlsx' || ext === '.xls' || ext === '.csv') return parseSpreadsheet(file);
   if (ext === '.pdf') return parsePdf(file);
   if (ext === '.docx') return parseDocx(file);
+  if (ext === '.pptx') return parsePptx(file);
   return parseTextLike(file);
 }
 
@@ -884,8 +947,14 @@ export async function writeToVault(parsed, vaultPath = DEFAULT_VAULT_PATH) {
   await ensureVaultDirs(vaultPath);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const safeTitle = slugify(parsed.title);
-  const noteName = `${todayStamp()} - ${safeTitle}.md`;
-  const notePath = path.join(vaultPath, 'inbox', noteName);
+  let noteName = `${todayStamp()} - ${safeTitle}.md`;
+  let notePath = path.join(vaultPath, 'inbox', noteName);
+  let suffix = 2;
+  while (await fs.stat(notePath).then(() => true).catch(() => false)) {
+    noteName = `${todayStamp()} - ${safeTitle}-${suffix}.md`;
+    notePath = path.join(vaultPath, 'inbox', noteName);
+    suffix += 1;
+  }
   const linkCandidates = await matchVaultTopics(parsed, vaultPath);
   const conceptCandidates = extractConceptCandidates(parsed);
   const content = parsed.kind === 'data' ? generateDataNote(parsed, linkCandidates, conceptCandidates) : generateDocumentNote(parsed, linkCandidates, conceptCandidates);
